@@ -35,6 +35,7 @@
 
   // 预加载核心数据
   async function preloadApp() {
+    console.log('开始预加载数据...');
     const today = getLocalDate();
     
     // 并行预加载：概览、时间线(今天)、日报(今天)
@@ -51,6 +52,7 @@
         if (report) cache.setReport(today, report);
       })
     ]).then(() => {
+      console.log('预加载完成');
     }).catch(e => {
       console.warn('预加载部分失败:', e);
     });
@@ -103,6 +105,7 @@
     // 获取平台信息
     try {
       platform = await invoke('get_platform');
+      console.log('当前平台:', platform);
     } catch (e) {
       console.error('获取平台信息失败:', e);
     }
@@ -149,9 +152,11 @@
           // 检查今日是否已有日报
           const existingReport = await invoke('get_saved_report', { date: today });
           if (!existingReport) {
+            console.log('工作结束时间到达，自动生成日报...');
             await invoke('generate_report', { date: today, force: false });
             cache.invalidate('report');
             lastAutoGenDate = today;
+            console.log('日报自动生成完成');
           } else {
             lastAutoGenDate = today;  // 已有日报，标记今天不再触发
           }
@@ -162,6 +167,7 @@
     }, 60000);  // 每分钟检查一次
 
     const unlisten = await listen('screenshot-taken', (event) => {
+      console.log('截屏完成:', event.payload);
       
       // 1. 增量更新时间线缓存
       cache.addActivity(event.payload);

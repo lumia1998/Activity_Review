@@ -1,23 +1,13 @@
 <script>
   import { link, location } from 'svelte-spa-router';
   import { invoke } from '@tauri-apps/api/core';
-  import { getVersion } from '@tauri-apps/api/app';
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
 
   export let isRecording = true;
   export let isPaused = false;
   export let theme = 'system';
   
   const dispatch = createEventDispatcher();
-
-  let appVersion = '';
-  onMount(async () => {
-    try {
-      appVersion = await getVersion();
-    } catch (e) {
-      appVersion = '1.0.0';
-    }
-  });
 
   const navItems = [
     { path: '/', label: '概览', icon: 'home' },
@@ -152,7 +142,7 @@
   <!-- 底部工具栏 -->
   <div class="p-4 border-t border-slate-100 dark:border-slate-800">
     <div class="flex items-center justify-between">
-      <span class="text-[10px] text-slate-300 dark:text-slate-600 font-medium">v{appVersion}</span>
+      <span class="text-[10px] text-slate-300 dark:text-slate-600 font-medium">v1.0.1</span>
       <button on:click={cycleTheme}
         class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-300 transition-all"
         title="{theme === 'system' ? '自动' : theme === 'light' ? '浅色' : '深色'}模式">
