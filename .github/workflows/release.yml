@@ -150,7 +150,7 @@ jobs:
           ### macOS 安装说明
           首次打开可能提示「已损坏，无法打开」，请执行：
           \`\`\`bash
-          sudo xattr -rd com.apple.quarantine /Applications/Work\\ Review.app
+          sudo xattr -rd com.apple.quarantine /Applications/Work_Review.app
           \`\`\`"
 
           printf '%s\n' "$BODY" > release_notes.md
@@ -262,7 +262,7 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           allowUpdates: true
-          name: "Work Review ${{ github.ref_name }}"
+          name: "Work_Review ${{ github.ref_name }}"
           bodyFile: release_notes.md
           token: ${{ secrets.GITHUB_TOKEN }}
           artifacts: "all-artifacts/**/*,updater.json,updater-ghproxy.json,updater-ghp.json"

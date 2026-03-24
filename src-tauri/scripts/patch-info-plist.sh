@@ -3,7 +3,7 @@
 # 在 tauri build 完成后自动执行
 # 这些描述会显示在 macOS 系统授权弹窗中
 
-APP_BUNDLE=$(find target -name "Work Review.app" -type d 2>/dev/null | head -1)
+APP_BUNDLE=$(find target -name "Work_Review.app" -type d 2>/dev/null | head -1)
 
 if [ -z "$APP_BUNDLE" ]; then
     echo "[patch-info-plist] 未找到 .app 包，跳过"

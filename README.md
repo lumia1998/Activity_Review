@@ -102,7 +102,7 @@ Work Review 的核心是**本地记录**，AI 只负责让数据更好读。
 <summary>macOS 首次打开提示"已损坏"？</summary>
 
 ```bash
-sudo xattr -rd com.apple.quarantine /Applications/Work\ Review.app
+sudo xattr -rd com.apple.quarantine /Applications/Work_Review.app
 ```
 
 然后到 `系统设置 > 隐私与安全性 > 屏幕录制` 为 Work Review 开启权限。

@@ -11,16 +11,19 @@ use crate::work_intelligence::{
     WeeklyReviewResult, WorkSession,
 };
 use crate::AppState;
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
+use tauri_plugin_updater::UpdaterExt;
 
 const GITHUB_LATEST_RELEASE_API: &str =
     "https://api.github.com/repos/wm94i/Work_Review/releases/latest";
 const GITHUB_LATEST_RELEASE_PAGE: &str = "https://github.com/wm94i/Work_Review/releases/latest";
+const UPDATE_STATUS_EVENT: &str = "update-status";
 const UPDATER_JSON_ENDPOINTS: &[&str] = &[
     "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/latest/download/updater-ghproxy.json",
     "https://ghp.ci/https://github.com/wm94i/Work_Review/releases/latest/download/updater-ghp.json",
@@ -94,6 +97,29 @@ pub struct GithubUpdateInfo {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct GithubUpdateInstallResult {
+    pub updated: bool,
+    pub available: bool,
+    pub version: Option<String>,
+    pub source: Option<String>,
+    pub message: String,
+    pub attempted_sources: Vec<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct GithubUpdateStatusPayload {
+    stage: String,
+    message: String,
+    source: Option<String>,
+    version: Option<String>,
+    downloaded_bytes: Option<u64>,
+    total_bytes: Option<u64>,
+    percent: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateSettings {
     pub auto_check: bool,
     pub last_check_time: u64,
@@ -118,6 +144,37 @@ struct UpdaterJsonResponse {
 
 fn default_update_check_interval() -> u64 {
     DEFAULT_UPDATE_CHECK_INTERVAL_HOURS
+}
+
+fn update_source_label(endpoint: &str) -> String {
+    Url::parse(endpoint)
+        .ok()
+        .and_then(|url| url.host_str().map(|host| host.to_string()))
+        .unwrap_or_else(|| endpoint.to_string())
+}
+
+fn emit_update_status(
+    app: &AppHandle,
+    stage: &str,
+    message: impl Into<String>,
+    source: Option<String>,
+    version: Option<String>,
+    downloaded_bytes: Option<u64>,
+    total_bytes: Option<u64>,
+    percent: Option<u64>,
+) {
+    let _ = app.emit(
+        UPDATE_STATUS_EVENT,
+        GithubUpdateStatusPayload {
+            stage: stage.to_string(),
+            message: message.into(),
+            source,
+            version,
+            downloaded_bytes,
+            total_bytes,
+            percent,
+        },
+    );
 }
 
 impl Default for UpdateSettings {
@@ -2599,6 +2656,198 @@ pub async fn check_github_update() -> Result<GithubUpdateInfo, AppError> {
     })
 }
 
+/// 逐个尝试更新源进行在线更新，避免某个代理只返回 updater.json 但下载失败时直接中断。
+#[tauri::command]
+pub async fn download_and_install_github_update(
+    app: AppHandle,
+    expected_version: Option<String>,
+) -> Result<GithubUpdateInstallResult, AppError> {
+    let mut attempted_sources = Vec::new();
+    let mut failures = Vec::new();
+
+    for endpoint in UPDATER_JSON_ENDPOINTS {
+        let source_label = update_source_label(endpoint);
+        attempted_sources.push(source_label.clone());
+
+        emit_update_status(
+            &app,
+            "checking",
+            format!("正在检查更新源 {source_label}..."),
+            Some(source_label.clone()),
+            expected_version.clone(),
+            None,
+            None,
+            None,
+        );
+
+        let endpoint_url = Url::parse(endpoint)
+            .map_err(|e| AppError::Unknown(format!("解析更新源失败 ({endpoint}): {e}")))?;
+
+        let updater = match app
+            .updater_builder()
+            .endpoints(vec![endpoint_url])
+            .map_err(|e| AppError::Unknown(format!("配置更新源失败 ({source_label}): {e}")))?
+            .timeout(Duration::from_secs(20))
+            .build()
+        {
+            Ok(updater) => updater,
+            Err(error) => {
+                failures.push(format!("{source_label}: 构建更新器失败: {error}"));
+                continue;
+            }
+        };
+
+        let update = match updater.check().await {
+            Ok(Some(update)) => update,
+            Ok(None) => {
+                failures.push(format!("{source_label}: 未返回可安装的更新包"));
+                continue;
+            }
+            Err(error) => {
+                failures.push(format!("{source_label}: 检查更新失败: {error}"));
+                continue;
+            }
+        };
+
+        if let Some(expected) = expected_version.as_deref() {
+            if compare_versions(&update.version, expected) == Ordering::Less {
+                failures.push(format!(
+                    "{source_label}: 返回版本 {}，低于目标版本 {}",
+                    update.version, expected
+                ));
+                continue;
+            }
+        }
+
+        emit_update_status(
+            &app,
+            "found",
+            format!(
+                "发现新版本 {}，准备从 {source_label} 下载...",
+                update.version
+            ),
+            Some(source_label.clone()),
+            Some(update.version.clone()),
+            None,
+            None,
+            None,
+        );
+
+        let progress_app = app.clone();
+        let progress_source = source_label.clone();
+        let progress_version = update.version.clone();
+        let mut downloaded_bytes = 0_u64;
+
+        let finish_app = app.clone();
+        let finish_source = source_label.clone();
+        let finish_version = update.version.clone();
+
+        match update
+            .download_and_install(
+                move |chunk_length, total_bytes| {
+                    downloaded_bytes += chunk_length as u64;
+                    let percent = total_bytes.and_then(|total| {
+                        if total == 0 {
+                            None
+                        } else {
+                            Some(((downloaded_bytes * 100) / total).min(100))
+                        }
+                    });
+
+                    let message = if let Some(percent) = percent {
+                        format!("正在下载更新 {percent}%（{progress_source}）")
+                    } else {
+                        let mb = ((downloaded_bytes as f64) / 1024.0 / 1024.0).max(0.1);
+                        format!("正在下载更新 {:.1} MB（{}）", mb, progress_source)
+                    };
+
+                    emit_update_status(
+                        &progress_app,
+                        "downloading",
+                        message,
+                        Some(progress_source.clone()),
+                        Some(progress_version.clone()),
+                        Some(downloaded_bytes),
+                        total_bytes,
+                        percent,
+                    );
+                },
+                move || {
+                    emit_update_status(
+                        &finish_app,
+                        "installing",
+                        format!("下载完成，正在安装（{}）...", finish_source),
+                        Some(finish_source.clone()),
+                        Some(finish_version.clone()),
+                        None,
+                        None,
+                        Some(100),
+                    );
+                },
+            )
+            .await
+        {
+            Ok(()) => {
+                emit_update_status(
+                    &app,
+                    "completed",
+                    format!("更新安装完成，来源 {source_label}"),
+                    Some(source_label.clone()),
+                    Some(update.version.clone()),
+                    None,
+                    None,
+                    Some(100),
+                );
+
+                return Ok(GithubUpdateInstallResult {
+                    updated: true,
+                    available: true,
+                    version: Some(update.version),
+                    source: Some(source_label),
+                    message: "在线更新已完成".to_string(),
+                    attempted_sources,
+                });
+            }
+            Err(error) => {
+                failures.push(format!("{source_label}: 下载或安装失败: {error}"));
+                emit_update_status(
+                    &app,
+                    "retrying",
+                    format!("源 {source_label} 更新失败，准备尝试下一个源..."),
+                    Some(source_label),
+                    Some(update.version.clone()),
+                    None,
+                    None,
+                    None,
+                );
+            }
+        }
+    }
+
+    let message = if failures.is_empty() {
+        if let Some(expected) = expected_version.as_deref() {
+            format!("未找到可用于版本 {expected} 的在线更新源")
+        } else {
+            "当前未发现可安装的在线更新".to_string()
+        }
+    } else {
+        format!("在线更新失败，已尝试全部更新源：{}", failures.join("；"))
+    };
+
+    emit_update_status(
+        &app,
+        "failed",
+        message.clone(),
+        None,
+        expected_version.clone(),
+        None,
+        None,
+        None,
+    );
+
+    Err(AppError::Unknown(message))
+}
+
 /// 在系统文件管理器中打开数据目录
 /// plugin-shell 的 open 对本地路径在部分平台不可靠，改用系统命令直接打开
 #[tauri::command]
@@ -3133,7 +3382,7 @@ pub fn set_dock_visibility(visible: bool) -> Result<(), AppError> {
                     resource
                 } else {
                     NSString::alloc(nil)
-                        .init_str("/Applications/Work Review.app/Contents/Resources/icon.icns")
+                        .init_str("/Applications/Work_Review.app/Contents/Resources/icon.icns")
                 };
 
                 let image: *mut Object = NSImage::alloc(nil).initByReferencingFile_(path_to_use);

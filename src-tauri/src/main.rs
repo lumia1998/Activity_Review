@@ -1422,6 +1422,7 @@ async fn main() {
             commands::get_default_data_dir,
             commands::change_data_dir,
             commands::check_github_update,
+            commands::download_and_install_github_update,
             commands::open_data_dir,
             commands::get_screenshot_thumbnail,
             commands::get_screenshot_full,

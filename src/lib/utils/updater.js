@@ -1,28 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-shell';
-import { check } from '@tauri-apps/plugin-updater';
+import { listen } from '@tauri-apps/api/event';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { confirm } from '$lib/stores/confirm.js';
 import { showToast } from '$lib/stores/toast.js';
 
-const DEFAULT_RELEASE_URL = 'https://github.com/wm94i/Work_Review/releases/latest';
-const UPDATE_CHECK_TIMEOUT_MS = 8000;
-const UPDATE_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+const UPDATE_STATUS_EVENT = 'update-status';
 
 let updateInFlight = false;
-
-async function promptOpenRelease(message, releaseUrl = DEFAULT_RELEASE_URL) {
-  const openRelease = await confirm({
-    title: '更新提示',
-    message,
-    confirmText: '打开 Releases',
-    cancelText: '稍后处理',
-    tone: 'warning',
-  });
-  if (openRelease) {
-    await open(releaseUrl);
-  }
-}
 
 export async function runUpdateFlow(options = {}) {
   const {
@@ -64,51 +48,21 @@ export async function runUpdateFlow(options = {}) {
       }
     }
 
-    if (!releaseInfo.autoUpdateReady) {
-      onStatusChange(`发现新版本 ${releaseInfo.latestVersion}，自动更新包暂未就绪`);
-      showToast(`发现新版本 ${releaseInfo.latestVersion}，请手动下载`, 'warning');
-      await promptOpenRelease(
-        `检测到新版本 ${releaseInfo.latestVersion}，但自动更新通道暂未就绪。是否打开 Releases 页面手动下载？`,
-        releaseInfo.releaseUrl
-      );
-      return { updated: false, manualOnly: true };
-    }
-
-    const update = await check({ timeout: UPDATE_CHECK_TIMEOUT_MS });
-
-    if (!update) {
-      onStatusChange('自动更新通道暂不可用');
-      showToast('自动更新通道暂不可用，请手动下载', 'warning');
-      await promptOpenRelease(
-        '检测到新版本，但原生更新元数据尚未同步完成。是否打开 Releases 页面手动下载？',
-        releaseInfo.releaseUrl
-      );
-      return { updated: false, manualOnly: true };
-    }
-
-    onStatusChange(`发现新版本 ${update.version || releaseInfo.latestVersion}，开始下载...`);
-    let downloaded = 0;
-    let contentLength = 0;
-
-    await update.downloadAndInstall((event) => {
-      if (event.event === 'Started') {
-        contentLength = event.data.contentLength || 0;
-      } else if (event.event === 'Progress') {
-        downloaded += event.data.chunkLength;
-        if (contentLength > 0) {
-          const percent = Math.min(100, Math.round((downloaded / contentLength) * 100));
-          onStatusChange(`下载中 (${percent}%)`);
-        } else {
-          onStatusChange(`下载中 (${Math.max(1, Math.round(downloaded / 1024 / 1024))} MB)`);
-        }
-      } else if (event.event === 'Finished') {
-        onStatusChange('下载完成，正在安装...');
+    const unlistenUpdateStatus = await listen(UPDATE_STATUS_EVENT, (event) => {
+      const payload = event.payload || {};
+      if (payload.message) {
+        onStatusChange(payload.message);
       }
-    }, {
-      timeout: UPDATE_DOWNLOAD_TIMEOUT_MS,
     });
 
-    await update.close();
+    try {
+      await invoke('download_and_install_github_update', {
+        expectedVersion: releaseInfo.latestVersion,
+      });
+    } finally {
+      await unlistenUpdateStatus();
+    }
+
     onStatusChange('安装完成，正在重启...');
     await relaunch();
     return { updated: true };
@@ -117,31 +71,27 @@ export async function runUpdateFlow(options = {}) {
     console.error('检查更新失败:', error);
 
     if (errMsg.includes('timeout') || errMsg.includes('timed out')) {
-      onStatusChange('检查更新超时');
-      showToast('检查更新超时', 'error');
-      await promptOpenRelease('检查更新超时。是否打开 Releases 页面手动下载最新版本？');
+      onStatusChange('在线更新超时');
+      showToast('在线更新超时，已尝试全部更新源', 'error');
     } else if (
       errMsg.includes('Download request failed') ||
       errMsg.includes('failed to download') ||
       errMsg.includes('Network')
     ) {
-      onStatusChange('下载更新失败');
-      showToast('下载更新失败', 'error');
-      await promptOpenRelease('更新包下载失败。是否打开 Releases 页面手动下载最新版本？');
+      onStatusChange('在线更新失败');
+      showToast('在线更新失败，已尝试全部更新源', 'error');
     } else {
-      onStatusChange('检查更新失败');
-      await confirm({
-        title: '更新错误',
-        message: `检查更新出现问题: ${errMsg}`,
-        confirmText: '我知道了',
-        cancelText: '打开 Releases',
-        tone: 'error',
-      }).then(async (confirmed) => {
-        if (!confirmed) {
-          await open(DEFAULT_RELEASE_URL);
-        }
-      });
+      onStatusChange('在线更新失败');
+      showToast('在线更新失败', 'error');
     }
+
+    await confirm({
+      title: '更新错误',
+      message: `在线更新未完成：${errMsg}`,
+      confirmText: '我知道了',
+      cancelText: '稍后重试',
+      tone: 'error',
+    });
 
     return { updated: false, error: errMsg };
   } finally {

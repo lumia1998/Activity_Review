@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.19] - 2026-03-24
+
+### 修复
+- 修复在线更新在部分更新源仅能获取 `updater.json`、但安装包下载失败后直接中断的问题：应用内更新现会按更新源依次检查并自动切换后备源重试，减少因为单个代理异常导致的升级失败。
+- 修复 `v1.0.18` 发布产物命名与 `updater.json` 不一致导致的在线更新失败问题：自动更新清单、安装包和签名现在会统一对齐，避免清单指向不存在的下载地址。
+
+### 优化
+- 统一应用构建产物命名为 `Work_Review`，不再生成带空格或 `.` 的安装包、应用包和更新文件名，降低 GitHub Release 资产命名漂移带来的风险。
+- 优化 Release workflow 与 tag 发布链路，统一发布说明中的安装路径和产物名称，确保 GitHub Actions 在发版时生成稳定一致的更新资产。
+
 ## [1.0.18] - 2026-03-23
 
 ### 新增
