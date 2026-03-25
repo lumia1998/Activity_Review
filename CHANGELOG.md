@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.20] - 2026-03-25
+
+### 修复
+- 修复应用内更新在安装完成后调用重启命令被 Tauri ACL 拦截的问题：补充 `process` 插件的 `restart` 权限，避免出现 `Command plugin:process|restart not allowed by ACL` 导致更新停在旧版本。
+
 ## [1.0.19] - 2026-03-24
 
 ### 修复
