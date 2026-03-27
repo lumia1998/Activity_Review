@@ -1,6 +1,6 @@
 [package]
 name = "work-review"
-version = "1.0.23"
+version = "1.0.24"
 
 description = "个人工作回顾与AI日报助手"
 authors = ["WorkReview Team"]
@@ -11,7 +11,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # Tauri 核心
-tauri = { version = "2.9", features = ["tray-icon"] }
+tauri = { version = "2.9", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-single-instance = { version = "2" }
 
 # 异步运行时

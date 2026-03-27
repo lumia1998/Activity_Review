@@ -388,6 +388,15 @@ pub struct AppConfig {
     /// 隐藏 Dock 图标（仅保留菜单栏）
     #[serde(default)]
     pub hide_dock_icon: bool,
+    /// 是否启用桌面化身窗口
+    #[serde(default)]
+    pub avatar_enabled: bool,
+    /// 桌宠缩放比例（0.7 - 1.3）
+    #[serde(default = "default_avatar_scale")]
+    pub avatar_scale: f64,
+    /// 桌宠猫体透明度（0.45 - 1.0）
+    #[serde(default = "default_avatar_opacity")]
+    pub avatar_opacity: f64,
     /// 隐藏系统标题栏装饰
     #[serde(default)]
     pub hide_decorations: bool,
@@ -414,6 +423,12 @@ fn default_bg_opacity() -> f32 {
 fn default_bg_blur() -> u8 {
     1
 }
+fn default_avatar_scale() -> f64 {
+    0.9
+}
+fn default_avatar_opacity() -> f64 {
+    0.82
+}
 
 impl Default for AppConfig {
     fn default() -> Self {
@@ -438,6 +453,9 @@ impl Default for AppConfig {
             openai_api_key: None,
             openai_model: "gpt-4o-mini".to_string(),
             hide_dock_icon: false,
+            avatar_enabled: false,
+            avatar_scale: default_avatar_scale(),
+            avatar_opacity: default_avatar_opacity(),
             hide_decorations: false,
             background_image: None,
             background_opacity: 0.25,
@@ -450,6 +468,8 @@ impl AppConfig {
     /// 规范化配置，兼容旧字段并补齐助手可用的文本模型档案
     pub fn normalize(&mut self) {
         self.migrate_legacy_config();
+        self.avatar_scale = normalize_avatar_scale(self.avatar_scale);
+        self.avatar_opacity = normalize_avatar_opacity(self.avatar_opacity);
         self.sync_text_model_profiles();
     }
 
@@ -587,4 +607,58 @@ fn default_profile_name(model_config: &ModelConfig) -> String {
 
 fn default_connection_status() -> String {
     "untested".to_string()
+}
+
+fn normalize_avatar_scale(value: f64) -> f64 {
+    if !value.is_finite() {
+        return default_avatar_scale();
+    }
+
+    value.clamp(0.7, 1.3)
+}
+
+fn normalize_avatar_opacity(value: f64) -> f64 {
+    if !value.is_finite() {
+        return default_avatar_opacity();
+    }
+
+    value.clamp(0.45, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        default_avatar_opacity, default_avatar_scale, normalize_avatar_opacity,
+        normalize_avatar_scale, AppConfig,
+    };
+
+    #[test]
+    fn 桌宠缩放默认值应为百分之九十() {
+        let config = AppConfig::default();
+
+        assert_eq!(config.avatar_scale, default_avatar_scale());
+        assert_eq!(config.avatar_scale, 0.9);
+    }
+
+    #[test]
+    fn 桌宠透明度默认值应为百分之八十二() {
+        let config = AppConfig::default();
+
+        assert_eq!(config.avatar_opacity, default_avatar_opacity());
+        assert_eq!(config.avatar_opacity, 0.82);
+    }
+
+    #[test]
+    fn 桌宠缩放应被钳制在允许范围内() {
+        assert_eq!(normalize_avatar_scale(0.3), 0.7);
+        assert_eq!(normalize_avatar_scale(2.0), 1.3);
+        assert_eq!(normalize_avatar_scale(f64::NAN), 0.9);
+    }
+
+    #[test]
+    fn 桌宠透明度应被钳制在允许范围内() {
+        assert_eq!(normalize_avatar_opacity(0.1), 0.45);
+        assert_eq!(normalize_avatar_opacity(1.5), 1.0);
+        assert_eq!(normalize_avatar_opacity(f64::NAN), 0.82);
+    }
 }

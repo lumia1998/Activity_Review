@@ -11,6 +11,7 @@
   import Ask from './routes/ask/Ask.svelte';
   import Settings from './routes/settings/Settings.svelte';
   import About from './routes/about/About.svelte';
+  import AvatarWindow from './routes/avatar/AvatarWindow.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -19,6 +20,8 @@
   import { runUpdateFlow } from './lib/utils/updater.js';
 
   const appWindow = getCurrentWebviewWindow();
+  const currentWindowLabel = appWindow.label;
+  const isAvatarWindow = currentWindowLabel === 'avatar';
 
   // 窗口控制函数
   async function closeWindow() {
@@ -160,6 +163,10 @@
   }
 
   onMount(() => {
+    if (isAvatarWindow) {
+      return () => {};
+    }
+
     let disposed = false;
     let cleanup = () => {};
 
@@ -312,6 +319,9 @@
   });
 </script>
 
+{#if isAvatarWindow}
+  <AvatarWindow />
+{:else}
 <div class="flex h-screen overflow-hidden relative bg-[linear-gradient(180deg,#f8fafc_0%,#eef2ff_38%,#f8fafc_100%)] dark:bg-[linear-gradient(180deg,#020617_0%,#0f172a_44%,#020617_100%)]">
   <div class="pointer-events-none absolute inset-0 z-0 opacity-80">
     <div class="absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.14),transparent_62%)] dark:bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_62%)]"></div>
@@ -398,3 +408,4 @@
     <ConfirmDialog />
   </div>
 </div>
+{/if}

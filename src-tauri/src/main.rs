@@ -7,6 +7,7 @@
 extern crate objc;
 
 mod analysis;
+mod avatar_engine;
 mod commands;
 mod config;
 mod database;
@@ -109,6 +110,8 @@ pub struct AppState {
     pub config_path: PathBuf,
     pub is_recording: bool,
     pub is_paused: bool,
+    pub avatar_state: avatar_engine::AvatarStatePayload,
+    pub avatar_generating_report: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -308,6 +311,145 @@ fn recording_loop_decision(
     }
 }
 
+fn monitoring_poll_interval_ms() -> u64 {
+    500
+}
+
+fn avatar_monitor_poll_interval_ms() -> u64 {
+    180
+}
+
+fn should_skip_transient_window(active_window: &monitor::ActiveWindow) -> bool {
+    let app_lower = active_window.app_name.to_lowercase();
+    matches!(
+        app_lower.as_str(),
+        "dock"
+            | "systemuiserver"
+            | "control center"
+            | "spotlight"
+            | "notificationcenter"
+            | "loginwindow"
+            | "screencaptureui"
+            | "universalaccessauthwarn"
+            | "windowmanager"
+            | "wallpaper"
+    )
+}
+
+fn should_skip_system_window(active_window: &monitor::ActiveWindow) -> bool {
+    let is_sys = monitor::is_system_process(&active_window.app_name);
+    let is_explorer_shell = {
+        let name_lower = active_window.app_name.to_lowercase();
+        let name_trimmed = name_lower.trim_end_matches(".exe");
+        (name_trimmed == "explorer" || name_trimmed == "file explorer")
+            && active_window.window_title.is_empty()
+    };
+
+    is_sys || is_explorer_shell
+}
+
+async fn background_avatar_task(state: Arc<Mutex<AppState>>, app: AppHandle) {
+    let mut last_avatar_state: Option<avatar_engine::AvatarStatePayload> = None;
+    let mut last_window_signature: Option<String> = None;
+    const IDLE_TIMEOUT_MINUTES: u64 = 3;
+    let idle_detector = idle_detector::IdleDetector::new(IDLE_TIMEOUT_MINUTES);
+
+    loop {
+        tokio::time::sleep(Duration::from_millis(avatar_monitor_poll_interval_ms())).await;
+
+        let (avatar_enabled, avatar_generating_report, avatar_opacity, is_recording, is_paused) = {
+            let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                state_guard.config.avatar_enabled,
+                state_guard.avatar_generating_report,
+                state_guard.config.avatar_opacity,
+                state_guard.is_recording,
+                state_guard.is_paused,
+            )
+        };
+
+        if !avatar_enabled {
+            if last_avatar_state.take().is_some() {
+                let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                state_guard.avatar_state = avatar_engine::default_avatar_state();
+            }
+            last_window_signature = None;
+            continue;
+        }
+
+        if !is_recording || is_paused {
+            continue;
+        }
+
+        let sampled_at = std::time::Instant::now();
+        let active_window = match monitor::get_active_window_fast() {
+            Ok(window) => window,
+            Err(_) => continue,
+        };
+
+        if should_skip_transient_window(&active_window) || should_skip_system_window(&active_window) {
+            continue;
+        }
+
+        let input_idle = idle_detector.is_input_idle();
+        let avatar_state = avatar_engine::apply_avatar_opacity(
+            avatar_engine::derive_avatar_state(
+                &active_window.app_name,
+                &active_window.window_title,
+                input_idle,
+                avatar_generating_report,
+            ),
+            avatar_opacity,
+        );
+
+        let window_signature = format!("{}|{}", active_window.app_name, active_window.window_title);
+        if last_avatar_state.as_ref() != Some(&avatar_state) {
+            let collect_cost_ms = sampled_at.elapsed().as_millis();
+            let previous_mode = last_avatar_state
+                .as_ref()
+                .map(|state| state.mode.as_str())
+                .unwrap_or("none");
+
+            {
+                let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                state_guard.avatar_state = avatar_state.clone();
+            }
+
+            avatar_engine::emit_avatar_state(&app, &avatar_state);
+
+            let entered_idle = match &last_avatar_state {
+                Some(previous) => !previous.is_idle && avatar_state.is_idle,
+                None => avatar_state.is_idle,
+            };
+
+            if entered_idle {
+                avatar_engine::emit_avatar_bubble(
+                    &app,
+                    &avatar_engine::AvatarBubblePayload::info("先放松一下，待会再继续推进。"),
+                );
+            }
+
+            log::info!(
+                "🐾 桌宠状态切换: {} -> {} | 窗口={} | 采集耗时={}ms",
+                previous_mode,
+                avatar_state.mode,
+                window_signature,
+                collect_cost_ms
+            );
+
+            last_avatar_state = Some(avatar_state);
+            last_window_signature = Some(window_signature);
+        } else if last_window_signature.as_deref() != Some(window_signature.as_str()) {
+            log::debug!(
+                "🐾 桌宠检测到前台切换，但状态未变: {} | 采集耗时={}ms",
+                window_signature,
+                sampled_at.elapsed().as_millis()
+            );
+            last_window_signature = Some(window_signature);
+        }
+    }
+}
+
 // 系统托盘在 setup 钩子中使用 TrayIconBuilder 创建 (Tauri v2)
 
 /// 后台截屏任务
@@ -328,7 +470,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
     let mut is_currently_idle = false; // 当前是否处于空闲状态
 
     const MIN_CAPTURE_INTERVAL_MS: u128 = 3000; // 最小截图间隔3秒（防抖）
-    const POLL_INTERVAL_SECS: u64 = 3; // 轮询间隔3秒，降低页面切换统计误差
+    let poll_interval_ms = monitoring_poll_interval_ms(); // 桌宠状态和窗口切换检测优先更快反馈
 
     // OCR 并发限制：最多 2 个 OCR 任务同时运行，防止任务堆积消耗内存
     let ocr_semaphore = Arc::new(tokio::sync::Semaphore::new(2));
@@ -367,8 +509,8 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
 
         let screenshot_interval = decision.screenshot_interval;
 
-        // 轮询检测活动窗口（3秒间隔，降低页面切换统计误差）
-        tokio::time::sleep(Duration::from_secs(POLL_INTERVAL_SECS)).await;
+        // 轮询检测活动窗口（1秒间隔），让桌宠状态切换更及时
+        tokio::time::sleep(Duration::from_millis(poll_interval_ms)).await;
 
         // 获取当前活动窗口
         // 失败原因：Windows 睡眠/待机/UAC 时无前台窗口、macOS 权限不足等
@@ -395,21 +537,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
         // 跳过这些进程避免它们偷走其他应用的使用时长
         // 不更新 last_app_name，时长会在下一个正常轮询中通过 elapsed_secs 自然回收
         {
-            let app_lower = active_window.app_name.to_lowercase();
-            let is_system_transient = matches!(
-                app_lower.as_str(),
-                "dock"
-                    | "systemuiserver"
-                    | "control center"
-                    | "spotlight"
-                    | "notificationcenter"
-                    | "loginwindow"
-                    | "screencaptureui"
-                    | "universalaccessauthwarn"
-                    | "windowmanager"
-                    | "wallpaper"
-            );
-            if is_system_transient {
+            if should_skip_transient_window(&active_window) {
                 log::debug!("跳过系统瞬态进程: {}", active_window.app_name);
                 continue;
             }
@@ -418,15 +546,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
         // 跳过系统 shell / 锁屏 / 桌面进程，避免睡眠/唤醒时累积虚假时长
         // 注意 explorer 特殊处理：有窗口标题时是文件管理器，应该记录
         {
-            let is_sys = monitor::is_system_process(&active_window.app_name);
-            let is_explorer_shell = {
-                let name_lower = active_window.app_name.to_lowercase();
-                let name_trimmed = name_lower.trim_end_matches(".exe");
-                (name_trimmed == "explorer" || name_trimmed == "file explorer")
-                    && active_window.window_title.is_empty()
-            };
-
-            if is_sys || is_explorer_shell {
+            if should_skip_system_window(&active_window) {
                 log::debug!(
                     "跳过系统进程: {} (title={})",
                     active_window.app_name,
@@ -565,7 +685,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
         last_capture_time = std::time::Instant::now();
 
         // 使用距离上次截图的实际经过时间作为本次记录的时长
-        // 而非固定的 POLL_INTERVAL_SECS，避免截图间隔大于轮询间隔时丢失时长
+        // 而非固定的轮询间隔，避免截图间隔大于轮询间隔时丢失时长
         let (privacy_action, duration_to_record) = {
             let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
             let action = state_guard.privacy_filter.check_privacy_full(
@@ -574,7 +694,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
                 active_window.browser_url.as_deref(),
             );
             // elapsed_secs 是距离上次截图的真实秒数，确保时长不丢失
-            let duration = elapsed_secs.max(POLL_INTERVAL_SECS) as i64;
+            let duration = elapsed_secs.max(1) as i64;
             (action, duration)
         };
         // 锁已释放
@@ -1048,7 +1168,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
 
             let ow_category = monitor::categorize_app(&ow.app_name, &ow.window_title);
             let current_ts = chrono::Local::now().timestamp();
-            let ow_duration = POLL_INTERVAL_SECS as i64;
+            let ow_duration = poll_interval_ms.div_ceil(1000) as i64;
 
             // 查找该应用的最近活动记录，尝试合并
             let latest = {
@@ -1312,6 +1432,7 @@ async fn main() {
 
     // 初始化存储管理器
     let storage_manager = StorageManager::new(&data_dir, config.storage.clone());
+    let initial_avatar_opacity = config.avatar_opacity;
 
     // 启动时执行一次清理
     if let Err(e) = storage_manager.cleanup() {
@@ -1329,6 +1450,11 @@ async fn main() {
         config_path,
         is_recording: true,
         is_paused: false,
+        avatar_state: avatar_engine::apply_avatar_opacity(
+            avatar_engine::default_avatar_state(),
+            initial_avatar_opacity,
+        ),
+        avatar_generating_report: false,
     }));
 
     // 构建 Tauri 应用
@@ -1384,9 +1510,26 @@ async fn main() {
             let state = app.state::<Arc<Mutex<AppState>>>();
             let state_clone = state.inner().clone();
             let state_clone2 = state.inner().clone();
+            let state_clone3 = state.inner().clone();
             let _state_for_tray = state.inner().clone(); // 预留
             let window_clone = window.clone();
             let window_for_tray = window.clone();
+            let app_handle = app.handle().clone();
+
+            let (avatar_enabled, avatar_scale, avatar_state) = {
+                let state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
+                (
+                    state_guard.config.avatar_enabled,
+                    state_guard.config.avatar_scale,
+                    state_guard.avatar_state.clone(),
+                )
+            };
+
+            if let Err(e) = avatar_engine::sync_avatar_window(&app.handle(), avatar_enabled, avatar_scale) {
+                log::warn!("初始化桌宠窗口失败: {e}");
+            } else if avatar_enabled {
+                avatar_engine::emit_avatar_state(&app.handle(), &avatar_state);
+            }
 
             // 创建 Tauri v2 系统托盘
             let show = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
@@ -1459,6 +1602,10 @@ async fn main() {
                 background_screenshot_task(state_clone, window_clone).await;
             });
 
+            tauri::async_runtime::spawn(async move {
+                background_avatar_task(state_clone3, app_handle).await;
+            });
+
             // 启动小时摘要生成任务（每小时检查一次）
             tauri::async_runtime::spawn(async move {
                 hourly_summary_task(state_clone2).await;
@@ -1519,6 +1666,7 @@ async fn main() {
             commands::pause_recording,
             commands::resume_recording,
             commands::get_recording_state,
+            commands::get_avatar_state,
             commands::get_data_dir,
             commands::get_default_data_dir,
             commands::get_runtime_platform,
@@ -1558,6 +1706,7 @@ async fn main() {
             commands::save_background_image,
             commands::get_background_image,
             commands::clear_background_image,
+            commands::show_main_window,
             get_platform,
         ])
         .build(tauri::generate_context!())
@@ -1583,7 +1732,7 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::recording_loop_decision;
+    use super::{avatar_monitor_poll_interval_ms, monitoring_poll_interval_ms, recording_loop_decision};
 
     #[test]
     fn 暂停录制时应重置截图计时器() {
@@ -1607,5 +1756,15 @@ mod tests {
         assert!(decision.should_continue);
         assert!(!decision.reset_capture_clock);
         assert_eq!(decision.screenshot_interval, 30);
+    }
+
+    #[test]
+    fn 主监控轮询间隔应保持半秒() {
+        assert_eq!(monitoring_poll_interval_ms(), 500);
+    }
+
+    #[test]
+    fn 桌宠独立轮询间隔应压到一百八十毫秒() {
+        assert_eq!(avatar_monitor_poll_interval_ms(), 180);
     }
 }

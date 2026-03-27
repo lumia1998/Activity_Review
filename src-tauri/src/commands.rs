@@ -17,7 +17,7 @@ use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_updater::UpdaterExt;
 
 const GITHUB_LATEST_RELEASE_API: &str =
@@ -2218,6 +2218,7 @@ pub async fn extract_todo_items(
 pub async fn generate_report(
     date: String,
     force: Option<bool>,
+    app: AppHandle,
     state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<String, AppError> {
     // 如果不是强制重新生成，先检查缓存
@@ -2242,6 +2243,34 @@ pub async fn generate_report(
         )
     };
 
+    let avatar_start_state = {
+        let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        state.avatar_generating_report = true;
+        let avatar_state = crate::avatar_engine::apply_avatar_opacity(
+            crate::avatar_engine::derive_avatar_state(
+                &state.avatar_state.app_name,
+                "",
+                state.avatar_state.is_idle,
+                true,
+            ),
+            state.config.avatar_opacity,
+        );
+        state.avatar_state = avatar_state.clone();
+        if state.config.avatar_enabled {
+            Some(avatar_state)
+        } else {
+            None
+        }
+    };
+
+    if let Some(avatar_state) = avatar_start_state.as_ref() {
+        crate::avatar_engine::emit_avatar_state(&app, avatar_state);
+        crate::avatar_engine::emit_avatar_bubble(
+            &app,
+            &crate::avatar_engine::AvatarBubblePayload::info("开始整理日报，稍等我一下。"),
+        );
+    }
+
     // 创建分析器（使用 text_model 配置）
     let analyzer = crate::analysis::create_analyzer(
         config.ai_mode,
@@ -2253,9 +2282,41 @@ pub async fn generate_report(
 
     // 生成报告
     let screenshots_dir = data_dir.join("screenshots");
-    let report = analyzer
+    let report_result = analyzer
         .generate_report(&date, &stats, &activities, &screenshots_dir)
-        .await?;
+        .await;
+
+    let avatar_finish_state = {
+        let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        state.avatar_generating_report = false;
+        let avatar_state = crate::avatar_engine::apply_avatar_opacity(
+            crate::avatar_engine::derive_avatar_state(
+                &state.avatar_state.app_name,
+                "",
+                state.avatar_state.is_idle,
+                false,
+            ),
+            state.config.avatar_opacity,
+        );
+        state.avatar_state = avatar_state.clone();
+        if state.config.avatar_enabled {
+            Some(avatar_state)
+        } else {
+            None
+        }
+    };
+
+    if let Some(avatar_state) = avatar_finish_state.as_ref() {
+        crate::avatar_engine::emit_avatar_state(&app, avatar_state);
+        let bubble = if report_result.is_ok() {
+            crate::avatar_engine::AvatarBubblePayload::success("日报整理好了，可以回来看看。")
+        } else {
+            crate::avatar_engine::AvatarBubblePayload::info("这次日报整理失败了，稍后可以再试。")
+        };
+        crate::avatar_engine::emit_avatar_bubble(&app, &bubble);
+    }
+
+    let report = report_result?;
 
     // 保存报告
     {
@@ -2294,22 +2355,33 @@ pub async fn get_config(state: State<'_, Arc<Mutex<AppState>>>) -> Result<AppCon
 #[tauri::command]
 pub async fn save_config(
     mut config: AppConfig,
+    app: AppHandle,
     state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<(), AppError> {
-    let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
-
     config.normalize();
+    let avatar_state = {
+        let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
 
-    // 更新配置
-    state.config = config.clone();
-    state.storage_manager.update_config(config.storage.clone());
+        // 更新配置
+        state.config = config.clone();
+        state.storage_manager.update_config(config.storage.clone());
 
-    // 保存到文件
-    let config_path = state.config_path.clone();
-    config.save(&config_path)?;
+        // 保存到文件
+        let config_path = state.config_path.clone();
+        config.save(&config_path)?;
 
-    // 更新隐私过滤器
-    state.privacy_filter.update_config(&config.privacy);
+        // 更新隐私过滤器
+        state.privacy_filter.update_config(&config.privacy);
+        state.avatar_state =
+            crate::avatar_engine::apply_avatar_opacity(state.avatar_state.clone(), config.avatar_opacity);
+        state.avatar_state.clone()
+    };
+
+    crate::avatar_engine::sync_avatar_window(&app, config.avatar_enabled, config.avatar_scale)
+        .map_err(|e| AppError::Unknown(format!("同步桌宠窗口失败: {e}")))?;
+    if config.avatar_enabled {
+        crate::avatar_engine::emit_avatar_state(&app, &avatar_state);
+    }
 
     log::info!("配置已保存");
     Ok(())
@@ -2770,6 +2842,27 @@ pub async fn get_recording_state(
 ) -> Result<(bool, bool), AppError> {
     let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
     Ok((state.is_recording, state.is_paused))
+}
+
+/// 获取当前桌宠状态
+#[tauri::command]
+pub async fn get_avatar_state(
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<crate::avatar_engine::AvatarStatePayload, AppError> {
+    let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+    Ok(state.avatar_state.clone())
+}
+
+/// 显示主窗口
+#[tauri::command]
+pub async fn show_main_window(app: AppHandle) -> Result<(), AppError> {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+
+    Ok(())
 }
 
 /// 获取数据目录

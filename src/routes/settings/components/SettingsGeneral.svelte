@@ -10,10 +10,6 @@
   // 开机自启动状态（独立于 config，由系统 API 驱动）
   let autoStartEnabled = false;
   
-  // 更新状态
-  let isCheckingUpdate = false;
-  let updateStatus = '';
-
   onMount(async () => {
     try {
       autoStartEnabled = await isAutostartEnabled();
@@ -95,7 +91,6 @@
     }
     dispatch('change', config);
   }
-
 </script>
 
 <!-- 基本设置 -->
@@ -176,6 +171,5 @@
         <span class="switch-thumb {config.hide_dock_icon ? 'translate-x-5' : 'translate-x-0'}"></span>
       </button>
     </div>
-
   </div>
 </div>

@@ -345,6 +345,16 @@ pub fn browser_page_domain_label(page_hint: &str) -> String {
 /// 获取当前活动窗口信息
 #[cfg(target_os = "windows")]
 pub fn get_active_window() -> Result<ActiveWindow> {
+    get_active_window_with_options(true)
+}
+
+#[cfg(target_os = "windows")]
+pub fn get_active_window_fast() -> Result<ActiveWindow> {
+    get_active_window_with_options(false)
+}
+
+#[cfg(target_os = "windows")]
+fn get_active_window_with_options(include_browser_url: bool) -> Result<ActiveWindow> {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use winapi::um::handleapi::CloseHandle;
@@ -464,7 +474,11 @@ pub fn get_active_window() -> Result<ActiveWindow> {
         let app_name = normalize_display_app_name(&raw_app_name);
 
         // 尝试获取浏览器 URL (Windows)
-        let browser_url = get_browser_url_windows(&raw_app_name, &window_title, hwnd as isize);
+        let browser_url = if include_browser_url {
+            get_browser_url_windows(&raw_app_name, &window_title, hwnd as isize)
+        } else {
+            None
+        };
 
         Ok(ActiveWindow {
             app_name,
@@ -870,6 +884,16 @@ mod tests {
 /// 获取当前活动窗口信息 (macOS)
 #[cfg(target_os = "macos")]
 pub fn get_active_window() -> Result<ActiveWindow> {
+    get_active_window_with_options(true)
+}
+
+#[cfg(target_os = "macos")]
+pub fn get_active_window_fast() -> Result<ActiveWindow> {
+    get_active_window_with_options(false)
+}
+
+#[cfg(target_os = "macos")]
+fn get_active_window_with_options(include_browser_url: bool) -> Result<ActiveWindow> {
     // 使用 AppleScript 获取活动应用信息
     let script = r#"
         tell application "System Events"
@@ -900,7 +924,11 @@ pub fn get_active_window() -> Result<ActiveWindow> {
         let app_name = normalize_electron_app_name(&raw_app_name, &window_title);
 
         // 如果是浏览器，尝试获取 URL
-        let browser_url = get_browser_url(&app_name);
+        let browser_url = if include_browser_url {
+            get_browser_url(&app_name)
+        } else {
+            None
+        };
 
         Ok(ActiveWindow {
             app_name,
@@ -1211,6 +1239,11 @@ end tell"#,
 /// 获取当前活动窗口信息 (Linux 或其他平台的后备实现)
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn get_active_window() -> Result<ActiveWindow> {
+    get_active_window_fast()
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub fn get_active_window_fast() -> Result<ActiveWindow> {
     Ok(ActiveWindow {
         app_name: "Unknown".to_string(),
         window_title: "Unknown".to_string(),

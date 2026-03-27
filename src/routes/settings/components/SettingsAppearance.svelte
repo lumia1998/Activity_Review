@@ -2,10 +2,29 @@
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { showToast } from '$lib/stores/toast.js';
+  import {
+    AVATAR_OPACITY_DEFAULT,
+    AVATAR_SCALE_DEFAULT,
+    clampAvatarOpacity,
+    clampAvatarScale,
+    formatAvatarOpacityLabel,
+    formatAvatarScaleLabel,
+    getAvatarToggleToast,
+    getAvatarToggleUiState,
+    toggleAvatarSetting,
+    updateAvatarOpacitySetting,
+    updateAvatarScaleSetting,
+  } from '$lib/utils/avatarToggle.js';
 
   export let config;
 
   const dispatch = createEventDispatcher();
+
+  let avatarSaving = false;
+  let avatarScaleSaving = false;
+  let avatarOpacitySaving = false;
+  let avatarScaleTimer = null;
+  let avatarOpacityTimer = null;
 
   // === 背景图片 ===
   let bgPreview = null;
@@ -13,6 +32,11 @@
   let appearanceDestroyed = false;
 
   const blurLabels = ['清晰', '轻微模糊', '中等模糊'];
+  $: avatarToggleUi = getAvatarToggleUiState(Boolean(config.avatar_enabled), avatarSaving);
+  $: avatarScale = clampAvatarScale(config.avatar_scale ?? AVATAR_SCALE_DEFAULT);
+  $: avatarScaleLabel = formatAvatarScaleLabel(avatarScale);
+  $: avatarOpacity = clampAvatarOpacity(config.avatar_opacity ?? AVATAR_OPACITY_DEFAULT);
+  $: avatarOpacityLabel = formatAvatarOpacityLabel(avatarOpacity);
 
   onMount(async () => {
     try {
@@ -23,7 +47,89 @@
 
   onDestroy(() => {
     appearanceDestroyed = true;
+    clearTimeout(avatarScaleTimer);
+    clearTimeout(avatarOpacityTimer);
   });
+
+  async function toggleAvatarMode() {
+    if (avatarSaving) {
+      return;
+    }
+
+    avatarSaving = true;
+
+    try {
+      const enabled = await toggleAvatarSetting(config, async (nextConfig) => {
+        await invoke('save_config', { config: nextConfig });
+      });
+
+      dispatch('change', config);
+      showToast(getAvatarToggleToast(enabled), enabled ? 'success' : 'info');
+    } catch (e) {
+      console.error('设置桌宠失败:', e);
+      showToast(`桌宠设置失败: ${e}`, 'error');
+    } finally {
+      avatarSaving = false;
+    }
+  }
+
+  function queueAvatarScaleSave(nextScale) {
+    clearTimeout(avatarScaleTimer);
+    avatarScaleTimer = setTimeout(async () => {
+      avatarScaleSaving = true;
+
+      try {
+        const savedScale = await updateAvatarScaleSetting(config, nextScale, async (nextConfig) => {
+          await invoke('save_config', { config: nextConfig });
+        });
+        config.avatar_scale = savedScale;
+        dispatch('change', config);
+      } catch (e) {
+        console.error('保存桌宠缩放失败:', e);
+        showToast(`桌宠缩放保存失败: ${e}`, 'error');
+      } finally {
+        avatarScaleSaving = false;
+      }
+    }, 120);
+  }
+
+  function handleAvatarScaleInput(event) {
+    const nextScale = clampAvatarScale(Number(event.currentTarget.value));
+    config.avatar_scale = nextScale;
+    dispatch('change', config);
+    queueAvatarScaleSave(nextScale);
+  }
+
+  function queueAvatarOpacitySave(nextOpacity) {
+    clearTimeout(avatarOpacityTimer);
+    avatarOpacityTimer = setTimeout(async () => {
+      avatarOpacitySaving = true;
+
+      try {
+        const savedOpacity = await updateAvatarOpacitySetting(
+          config,
+          nextOpacity,
+          async (nextConfig) => {
+            await invoke('save_config', { config: nextConfig });
+          }
+        );
+        config.avatar_opacity = savedOpacity;
+        dispatch('change', config);
+      } catch (e) {
+        console.error('保存桌宠透明度失败:', e);
+        showToast(`桌宠透明度保存失败: ${e}`, 'error');
+      } finally {
+        avatarOpacitySaving = false;
+      }
+    }, 120);
+  }
+
+  function handleAvatarOpacityInput(event) {
+    const nextOpacity = clampAvatarOpacity(Number(event.currentTarget.value));
+    config.avatar_opacity = nextOpacity;
+    dispatch('change', config);
+    queueAvatarOpacitySave(nextOpacity);
+  }
 
   function handleBgFileSelect(event) {
     const file = event.target.files?.[0];
@@ -99,6 +205,97 @@
     }));
   }
 </script>
+
+<div class="settings-card">
+  <div class="settings-section">
+    <div class="flex items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2">
+          <div class="settings-text">桌面化身</div>
+          <span class="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-200">
+            Beta
+          </span>
+        </div>
+        <div class="settings-muted mt-0.5">显示独立桌宠窗口，用轻量状态反馈当前工作节奏</div>
+        <div class="settings-muted mt-1 text-[12px]">实验功能，当前仍在持续优化显示细节、状态反馈与交互体验</div>
+      </div>
+      <button
+        type="button"
+        on:click={toggleAvatarMode}
+        class="switch-track {avatarToggleUi.trackClass} {avatarToggleUi.buttonClass}"
+        disabled={avatarSaving}
+        aria-label={avatarToggleUi.ariaLabel}
+        aria-pressed={config.avatar_enabled}
+      >
+        <span class="switch-thumb {avatarToggleUi.thumbClass}"></span>
+      </button>
+    </div>
+
+    <hr class="border-slate-200 dark:border-slate-700" />
+
+    <div class="settings-block pt-1">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="settings-text">桌宠大小</div>
+          <div class="settings-muted mt-0.5">连续缩放桌宠尺寸，调整后会立即同步到桌面窗口</div>
+        </div>
+        <div class="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          {avatarScaleLabel}
+          {#if avatarScaleSaving}
+            <span class="ml-2 text-xs font-normal text-slate-400 dark:text-slate-500">同步中</span>
+          {/if}
+        </div>
+      </div>
+
+      <input
+        type="range"
+        min="0.7"
+        max="1.3"
+        step="0.05"
+        value={avatarScale}
+        on:input={handleAvatarScaleInput}
+        class="mt-3 w-full accent-primary-500"
+        aria-label="调整桌宠大小"
+      />
+      <div class="mt-2 flex justify-between text-[11px] text-slate-400 dark:text-slate-500">
+        <span>更小</span>
+        <span>默认 90%</span>
+        <span>更大</span>
+      </div>
+    </div>
+
+    <div class="settings-block pt-1">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="settings-text">桌宠透明度</div>
+          <div class="settings-muted mt-0.5">仅作用于猫体本身，不影响背景图片透明度</div>
+        </div>
+        <div class="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          {avatarOpacityLabel}
+          {#if avatarOpacitySaving}
+            <span class="ml-2 text-xs font-normal text-slate-400 dark:text-slate-500">同步中</span>
+          {/if}
+        </div>
+      </div>
+
+      <input
+        type="range"
+        min="0.45"
+        max="1"
+        step="0.05"
+        value={avatarOpacity}
+        on:input={handleAvatarOpacityInput}
+        class="mt-3 w-full accent-primary-500"
+        aria-label="调整桌宠透明度"
+      />
+      <div class="mt-2 flex justify-between text-[11px] text-slate-400 dark:text-slate-500">
+        <span>更透</span>
+        <span>默认 82%</span>
+        <span>更实</span>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- 背景图片 -->
 <div class="settings-card">

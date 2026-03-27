@@ -611,11 +611,19 @@
 }
 
 .switch-track {
-  @apply relative w-11 h-6 rounded-full transition-colors duration-200;
+  @apply relative inline-flex w-11 h-6 shrink-0 rounded-full border border-transparent transition-all duration-200 ease-out appearance-none;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
 .switch-thumb {
-  @apply absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200;
+  @apply absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform duration-200 ease-out;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.16),
+    0 2px 6px rgba(15, 23, 42, 0.12);
+}
+
+.switch-track:disabled {
+  pointer-events: none;
 }
 
 /* 输入框样式 */
