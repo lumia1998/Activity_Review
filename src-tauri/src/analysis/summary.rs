@@ -1,4 +1,7 @@
-use crate::analysis::{append_custom_prompt, format_duration, Analyzer, GeneratedReport};
+use crate::analysis::{
+    append_custom_prompt, format_duration, generate_hourly_activity_summary, Analyzer,
+    GeneratedReport,
+};
 use crate::config::AiProvider;
 use crate::database::{Activity, DailyStats};
 use crate::error::{AppError, Result};
@@ -433,9 +436,15 @@ impl Analyzer for SummaryAnalyzer {
             report.push('\n');
         }
 
+        if let Some(hourly_summary) = generate_hourly_activity_summary(stats) {
+            report.push_str("## 四、按小时活跃度\n\n");
+            report.push_str(&hourly_summary);
+            report.push('\n');
+        }
+
         // ==================== 网站访问明细 ====================
         if !stats.domain_usage.is_empty() {
-            report.push_str("## 四、网站访问明细\n\n");
+            report.push_str("## 五、网站访问明细\n\n");
             report.push_str("| 序号 | 网站域名 | 访问时长 |\n");
             report.push_str("|--:|:--|--:|\n");
             for (i, domain) in stats.domain_usage.iter().enumerate() {
@@ -450,7 +459,7 @@ impl Analyzer for SummaryAnalyzer {
         }
 
         // ==================== AI 分析 ====================
-        report.push_str("## 五、AI 分析\n\n");
+        report.push_str("## 六、AI 分析\n\n");
 
         // 准备 AI 输入
         let apps_list = stats
@@ -471,6 +480,8 @@ impl Analyzer for SummaryAnalyzer {
 
         let keywords = self.extract_keywords(activities);
         let top_keywords = keywords.into_iter().take(8).collect::<Vec<_>>().join(", ");
+        let hourly_summary = generate_hourly_activity_summary(stats)
+            .unwrap_or_else(|| "暂无按小时活跃度数据".to_string());
 
         // 规整的 AI 提示词（站在共同度过工作一天的角度，深入分析数据）
         let prompt = append_custom_prompt(
@@ -481,6 +492,7 @@ impl Analyzer for SummaryAnalyzer {
 工作时长：{}
 主要应用：{}
 访问网站：{}
+按小时活跃度：{}
 屏幕内容关键词：{}
 
 【核心要求】
@@ -524,6 +536,7 @@ impl Analyzer for SummaryAnalyzer {
                 } else {
                     urls_list
                 },
+                hourly_summary,
                 if top_keywords.is_empty() {
                     "无".to_string()
                 } else {

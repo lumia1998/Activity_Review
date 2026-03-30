@@ -28,7 +28,7 @@ Work Review continuously records the apps you use, websites you visit, active wi
 - No manual check-ins
 - Overview, timeline, daily report, and assistant all share the same local data
 - You can jump from aggregate stats to concrete pages, titles, and screenshots
-- Supports lightweight mode, Markdown report export, and multi-display screenshot strategies
+- Supports lightweight mode, hourly activity views, Markdown report export, and multi-display screenshot strategies
 - Includes `Desktop Avatar Beta` for lightweight presence feedback while you work
 
 > All data stays local by default. AI features are optional.
@@ -67,7 +67,7 @@ Work Review is closer to a personal work-trace system:
 | Time-range understanding | Understands “yesterday”, “this week”, or “last 3 days” |
 | Session grouping | Groups fragmented actions into longer work sessions |
 | Todo extraction | Pulls likely follow-up items from pages, titles, and context |
-| Daily report | Generates structured reports with history view and Markdown export |
+| Daily report | Generates structured reports with history view, hourly activity summaries, and Markdown export |
 | Dual response modes | Choose between stable templates and AI-enhanced output |
 | Desktop Avatar Beta | Shows lightweight state feedback such as working, reading, meeting, music, video, and generating |
 
@@ -93,7 +93,7 @@ Work Review is closer to a personal work-trace system:
 
 <img src="docs/概览.png" alt="Work Review Overview" />
 
-The overview page combines total duration, work duration, browser usage, website access, and app distribution in one place.
+The overview page combines total duration, work duration, browser usage, website access, hourly activity patterns, and app distribution in one place.
 
 ### Assistant
 
@@ -113,7 +113,7 @@ The desktop avatar floats on the desktop and gives lightweight state feedback in
 
 | Page | Purpose |
 |------|-------|
-| **Overview** | Aggregated totals, work duration, browser usage, websites, and app distribution |
+| **Overview** | Aggregated totals, work duration, browser usage, websites, hourly activity, and app distribution |
 | **Timeline** | Replay windows, screenshots, OCR, and visited pages by time |
 | **Assistant** | Ask natural-language questions against your recorded work trail |
 | **Report** | Generate, review, and export daily reports |
@@ -130,7 +130,9 @@ The core of Work Review is still **local recording**. AI is there to make those 
 | **Template** | Works out of the box with stable structured output |
 | **AI Enhanced** | Uses your own model service for more natural summaries and answers |
 
-Supported providers: Ollama, OpenAI-compatible APIs, DeepSeek, Qwen, Zhipu, Kimi, Doubao, SiliconFlow, Gemini, and Claude.
+Supported providers: Ollama, OpenAI-compatible APIs, DeepSeek, Qwen, Zhipu, Kimi, Doubao, MiniMax, SiliconFlow, Gemini, and Claude.
+
+> The Ollama provider can refresh locally installed model lists directly, while still allowing manual model input as a fallback when needed.
 
 ---
 

@@ -1,4 +1,7 @@
-use crate::analysis::{append_custom_prompt, format_duration, Analyzer, GeneratedReport};
+use crate::analysis::{
+    append_custom_prompt, format_duration, generate_hourly_activity_summary, Analyzer,
+    GeneratedReport,
+};
 use crate::database::{Activity, DailyStats};
 use crate::error::{AppError, Result};
 use async_trait::async_trait;
@@ -241,9 +244,14 @@ impl Analyzer for LocalAnalyzer {
             ));
         }
 
+        if let Some(hourly_summary) = generate_hourly_activity_summary(stats) {
+            report.push_str("\n## 四、按小时活跃度\n\n");
+            report.push_str(&hourly_summary);
+        }
+
         // 网站访问
         if !stats.domain_usage.is_empty() {
-            report.push_str("\n## 四、网站访问\n\n");
+            report.push_str("\n## 五、网站访问\n\n");
             for domain in stats.domain_usage.iter().take(5) {
                 report.push_str(&format!(
                     "- **{}**: {}\n",
@@ -264,7 +272,7 @@ impl Analyzer for LocalAnalyzer {
             Err(e) => {
                 log::warn!("Ollama 调用失败，使用备选内容: {e}");
                 // 使用简单的备选内容
-                report.push_str("\n## 五、今日工作内容\n\n");
+                report.push_str("\n## 六、今日工作内容\n\n");
                 let apps_list = stats
                     .app_usage
                     .iter()
@@ -276,10 +284,10 @@ impl Analyzer for LocalAnalyzer {
                     "今日主要使用 {apps_list} 等应用进行工作。持续努力中！\n"
                 ));
 
-                report.push_str("\n## 六、专注度分析\n\n");
+                report.push_str("\n## 七、专注度分析\n\n");
                 report.push_str("今日工作整体表现不错，继续保持稳定的工作节奏。\n");
 
-                report.push_str("\n## 七、明日建议\n\n");
+                report.push_str("\n## 八、明日建议\n\n");
                 report.push_str(
                     "建议定期休息，避免久坐。深度工作时可以关闭通讯软件通知，提高专注度。\n",
                 );

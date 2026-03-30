@@ -89,6 +89,56 @@ pub fn format_duration(seconds: i64) -> String {
     }
 }
 
+fn format_hour_range(hour: i32) -> String {
+    let normalized_hour = hour.rem_euclid(24);
+    format!(
+        "{:02}:00-{:02}:00",
+        normalized_hour,
+        (normalized_hour + 1).rem_euclid(24)
+    )
+}
+
+pub fn generate_hourly_activity_summary(stats: &DailyStats) -> Option<String> {
+    let mut active_buckets = stats
+        .hourly_activity_distribution
+        .iter()
+        .filter(|bucket| bucket.duration > 0)
+        .map(|bucket| (bucket.hour, bucket.duration))
+        .collect::<Vec<_>>();
+
+    if active_buckets.is_empty() {
+        return None;
+    }
+
+    active_buckets.sort_by(|(left_hour, left_duration), (right_hour, right_duration)| {
+        right_duration
+            .cmp(left_duration)
+            .then_with(|| left_hour.cmp(right_hour))
+    });
+
+    let (peak_hour, peak_duration) = active_buckets[0];
+    let top_ranges = active_buckets
+        .iter()
+        .take(3)
+        .map(|(hour, duration)| {
+            format!(
+                "{}（{}）",
+                format_hour_range(*hour),
+                format_duration(*duration)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("、");
+
+    Some(format!(
+        "- 高峰时段: {}（{}）\n- 活跃小时数: {} 个\n- 主要活跃区间: {}\n",
+        format_hour_range(peak_hour),
+        format_duration(peak_duration),
+        active_buckets.len(),
+        top_ranges
+    ))
+}
+
 /// 生成统计摘要
 pub fn generate_stats_summary(stats: &DailyStats) -> String {
     let mut summary = String::new();
@@ -124,12 +174,18 @@ pub fn generate_stats_summary(stats: &DailyStats) -> String {
         ));
     }
 
+    if let Some(hourly_summary) = generate_hourly_activity_summary(stats) {
+        summary.push_str("\n### 按小时活跃度\n\n");
+        summary.push_str(&hourly_summary);
+    }
+
     summary
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{append_custom_prompt, normalize_custom_prompt};
+    use super::{append_custom_prompt, generate_stats_summary, normalize_custom_prompt};
+    use crate::database::{DailyStats, HourlyActivityBucket};
 
     #[test]
     fn 空白附加提示词应被忽略() {
@@ -143,5 +199,30 @@ mod tests {
         assert!(prompt.contains("基础提示"));
         assert!(prompt.contains("额外要求"));
         assert!(prompt.contains("输出偏正式一些"));
+    }
+
+    #[test]
+    fn 统计摘要应包含按小时活跃度信息() {
+        let stats = DailyStats {
+            total_duration: 5400,
+            screenshot_count: 3,
+            hourly_activity_distribution: vec![
+                HourlyActivityBucket {
+                    hour: 10,
+                    duration: 3600,
+                },
+                HourlyActivityBucket {
+                    hour: 14,
+                    duration: 1800,
+                },
+            ],
+            ..Default::default()
+        };
+
+        let summary = generate_stats_summary(&stats);
+
+        assert!(summary.contains("按小时活跃度"));
+        assert!(summary.contains("高峰时段"));
+        assert!(summary.contains("10:00-11:00"));
     }
 }

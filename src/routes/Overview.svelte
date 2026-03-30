@@ -4,6 +4,7 @@
   import { listen } from '@tauri-apps/api/event';
   import StatsCard from '../lib/components/StatsCard.svelte';
   import AppUsageChart from '../lib/components/AppUsageChart.svelte';
+  import ActivityHourlyChart from '../lib/components/ActivityHourlyChart.svelte';
   import { cache } from '../lib/stores/cache.js';
   import { confirm } from '../lib/stores/confirm.js';
   import { showToast } from '../lib/stores/toast.js';
@@ -26,6 +27,21 @@
   let editingDomainKey = null;
   let editingSemanticCategory = '';
   let savingDomainKey = null;
+  const semanticCategoryOptions = [
+    '编码开发',
+    '内容撰写',
+    '资料阅读',
+    '资料调研',
+    '任务规划',
+    '设计创作',
+    'AI 协作',
+    '即时聊天',
+    '会议沟通',
+    '视频内容',
+    '音乐音频',
+    '休息娱乐',
+    '未知活动',
+  ];
   
   // 浏览器统计弹窗
   let selectedBrowser = null;
@@ -75,6 +91,16 @@
   function startDomainSemanticEdit(domain) {
     editingDomainKey = domain.domain;
     editingSemanticCategory = domain.semantic_category?.trim() || '';
+  }
+
+  function getSemanticCategoryOptions() {
+    if (
+      editingSemanticCategory &&
+      !semanticCategoryOptions.includes(editingSemanticCategory)
+    ) {
+      return [editingSemanticCategory, ...semanticCategoryOptions];
+    }
+    return semanticCategoryOptions;
   }
 
   function cancelDomainSemanticEdit() {
@@ -357,6 +383,37 @@
       </div>
     {/if}
   </div>
+
+  <div class="page-card mb-4">
+    <h3 class="page-section-title">按小时活跃度</h3>
+    {#if loading || !stats}
+      <div class="animate-pulse rounded-2xl bg-white dark:bg-slate-800/60">
+        <div class="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {#each [1,2,3,4] as _}
+            <div class="min-h-[88px] rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
+              <div class="h-3 w-16 rounded bg-slate-200 dark:bg-slate-700"></div>
+              <div class="mt-4 h-7 w-20 rounded bg-slate-200 dark:bg-slate-700"></div>
+            </div>
+          {/each}
+        </div>
+        <div class="rounded-2xl border border-slate-100 dark:border-slate-700/60 p-4">
+          <div class="flex h-40 items-end gap-1.5">
+            {#each Array(24) as _, hour}
+              <div class="flex h-full flex-1 flex-col items-center justify-end">
+                <div
+                  class="w-full rounded-t-lg bg-slate-200 dark:bg-slate-700"
+                  style={`height: ${Math.max(((hour % 6) + 2) * 12, 18)}%; opacity: 0.8;`}
+                ></div>
+                <div class="mt-2 h-2 w-7 rounded bg-slate-100 dark:bg-slate-700/60"></div>
+              </div>
+            {/each}
+          </div>
+        </div>
+      </div>
+    {:else}
+      <ActivityHourlyChart data={stats.hourly_activity_distribution} />
+    {/if}
+  </div>
 </div>
 
 <!-- 浏览器详情弹窗 -->
@@ -428,15 +485,25 @@
 
           {#if editingDomainKey === domain.domain}
             <div class="px-3 py-3 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 space-y-2">
-              <label class="block text-xs font-medium text-slate-500 dark:text-slate-400">
-                修改分类
+              <label
+                for={`semantic-category-${domain.domain}`}
+                class="block text-xs font-medium text-slate-500 dark:text-slate-400"
+              >
+                选择分类
               </label>
+              <p class="text-xs text-slate-400 dark:text-slate-500">
+                使用固定分类集，保存后会按域名统一回填历史记录。
+              </p>
               <div class="flex flex-col gap-2 md:flex-row">
-                <input
+                <select
+                  id={`semantic-category-${domain.domain}`}
                   class="flex-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-700 dark:text-slate-100"
                   bind:value={editingSemanticCategory}
-                  placeholder="例如：工作跟进、资料阅读、休息娱乐"
-                />
+                >
+                  {#each getSemanticCategoryOptions() as option}
+                    <option value={option}>{option}</option>
+                  {/each}
+                </select>
                 <div class="flex items-center gap-2">
                   <button
                     class="px-3 py-2 rounded-lg bg-primary-500 text-white text-sm disabled:opacity-50"

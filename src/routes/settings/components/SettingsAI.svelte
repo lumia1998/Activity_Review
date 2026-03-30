@@ -39,6 +39,11 @@
   let textTestMessage = '';
   let textConnectionVerified = false;
   let showApiKey = false;
+  let ollamaModels = [];
+  let ollamaModelsLoading = false;
+  let ollamaModelsError = '';
+  let ollamaModelsHint = '';
+  let selectedOllamaModel = '';
   
   const unsubscribe = aiStore.subscribe(state => {
     textTestStatus = state.textTestStatus;
@@ -53,6 +58,10 @@
   // 当前提供商
   $: currentProvider = providers.find(p => p.id === config?.text_model?.provider) || providers[0];
   $: requiresApiKey = currentProvider?.requires_api_key ?? true;
+  $: isOllamaProvider = config?.text_model?.provider === 'ollama';
+  $: selectedOllamaModel = ollamaModels.includes(config?.text_model?.model || '')
+    ? config.text_model.model
+    : '';
 
   // 是否选择了 AI 增强模式（决定是否展开配置面板）
   $: isAiMode = config.ai_mode === 'summary';
@@ -92,6 +101,12 @@
     config.text_model.api_key = cached?.api_key || '';
     
     aiStore.reset();
+    if (providerId === 'ollama') {
+      refreshOllamaModels();
+    } else {
+      ollamaModels = [];
+      ollamaModelsError = '';
+    }
     dispatch('change', config);
   }
 
@@ -125,6 +140,68 @@
     }
   }
 
+  function getOllamaModelOptions() {
+    return ollamaModels;
+  }
+
+  function getOllamaFallbackOptionLabel() {
+    const currentModel = config?.text_model?.model?.trim();
+    if (currentModel) {
+      return ollamaModelsLoading
+        ? `当前配置：${currentModel}（正在刷新模型列表...）`
+        : `当前配置：${currentModel}（未获取到 Ollama 模型）`;
+    }
+    return ollamaModelsLoading ? '正在加载模型列表...' : '暂无模型，可手动输入';
+  }
+
+  function hasManualOllamaModelOutsideList() {
+    const currentModel = config?.text_model?.model?.trim();
+    return !!(
+      currentModel &&
+      ollamaModels.length > 0 &&
+      !ollamaModels.includes(currentModel)
+    );
+  }
+
+  function handleOllamaModelSelect() {
+    if (!selectedOllamaModel) return;
+    config.text_model.model = selectedOllamaModel;
+    handleChange();
+  }
+
+  async function refreshOllamaModels() {
+    if (!isOllamaProvider || !config?.text_model?.endpoint) return;
+
+    ollamaModelsLoading = true;
+    ollamaModelsError = '';
+    ollamaModelsHint = '';
+    try {
+      const models = await invoke('get_ollama_models', {
+        endpoint: config.text_model.endpoint,
+      });
+      ollamaModels = Array.isArray(models) ? models : [];
+      ollamaModelsHint = ollamaModels.length > 0
+        ? `已获取 ${ollamaModels.length} 个模型`
+        : '未获取到可用模型';
+      if (
+        ollamaModels.length > 0 &&
+        (
+          !config.text_model.model ||
+          !ollamaModels.includes(config.text_model.model)
+        )
+      ) {
+        config.text_model.model = ollamaModels[0];
+        dispatch('change', config);
+      }
+    } catch (e) {
+      ollamaModels = [];
+      ollamaModelsError = e.toString();
+      ollamaModelsHint = '';
+    } finally {
+      ollamaModelsLoading = false;
+    }
+  }
+
   function getConfigHash() {
     if (!config?.text_model) return null;
     const { provider, endpoint, model, api_key } = config.text_model;
@@ -143,6 +220,10 @@
     if (hasTextModelConfig && currentHash !== lastHash) {
       aiStore.setConfigHash(currentHash);
       await testTextModel();
+    }
+
+    if (isOllamaProvider && config?.text_model?.endpoint) {
+      await refreshOllamaModels();
     }
   });
 
@@ -295,16 +376,78 @@
 
     <!-- 模型名称 -->
     <div>
-      <label for="ai-model" class="settings-label mb-1.5">模型名称</label>
-      <input
-        id="ai-model"
-        type="text"
-        bind:value={config.text_model.model}
-        on:change={handleChange}
-        class="control-input"
-        placeholder={currentProvider?.default_model || 'qwen2.5'}
-      />
-      {#if currentProvider?.description}
+      <div class="flex items-end gap-2">
+        <div class="flex-1">
+          <label for="ai-model" class="settings-label mb-1.5">模型名称</label>
+          {#if isOllamaProvider}
+            {#key `${selectedOllamaModel}|${config?.text_model?.model || ''}|${ollamaModels.join('|')}|${ollamaModelsLoading}`}
+              <select
+                id="ai-model"
+                bind:value={selectedOllamaModel}
+                on:change={handleOllamaModelSelect}
+                class="control-input"
+                disabled={ollamaModelsLoading || getOllamaModelOptions().length === 0}
+              >
+                {#if getOllamaModelOptions().length === 0}
+                  <option value="">
+                    {getOllamaFallbackOptionLabel()}
+                  </option>
+                {:else}
+                  {#if hasManualOllamaModelOutsideList()}
+                    <option value="" disabled>
+                      当前手动输入的模型不在 Ollama 列表中
+                    </option>
+                  {/if}
+                  {#each ollamaModels as model (model)}
+                    <option value={model}>{model}</option>
+                  {/each}
+                {/if}
+              </select>
+            {/key}
+          {:else}
+            <input
+              id="ai-model"
+              type="text"
+              bind:value={config.text_model.model}
+              on:change={handleChange}
+              class="control-input"
+              placeholder={currentProvider?.default_model || 'qwen2.5'}
+            />
+          {/if}
+        </div>
+
+        {#if isOllamaProvider}
+          <button
+            type="button"
+            on:click={refreshOllamaModels}
+            disabled={ollamaModelsLoading || !config.text_model.endpoint}
+            class="shrink-0 min-h-10 px-3 py-2 text-xs font-medium rounded-lg leading-none transition-all settings-action-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {ollamaModelsLoading ? '加载中...' : '刷新模型列表'}
+          </button>
+        {/if}
+      </div>
+
+      {#if isOllamaProvider}
+        <div class="mt-3">
+          <label for="ai-model-manual" class="settings-label mb-1.5">手动输入模型名称</label>
+          <input
+            id="ai-model-manual"
+            type="text"
+            bind:value={config.text_model.model}
+            on:change={handleChange}
+            class="control-input"
+            placeholder={currentProvider?.default_model || 'qwen2.5'}
+          />
+        </div>
+        {#if ollamaModelsError}
+          <p class="settings-note text-rose-500 dark:text-rose-400">{ollamaModelsError}</p>
+        {:else if ollamaModelsHint}
+          <p class="settings-note">{ollamaModelsHint}，下拉选择失败时仍可手动输入。</p>
+        {:else}
+          <p class="settings-note">仅对 Ollama 提供模型列表，下拉选择失败时仍可手动输入。</p>
+        {/if}
+      {:else if currentProvider?.description}
         <p class="settings-note">{currentProvider.description}</p>
       {/if}
     </div>

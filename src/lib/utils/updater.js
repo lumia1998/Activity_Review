@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { open } from '@tauri-apps/plugin-shell';
 import { confirm } from '$lib/stores/confirm.js';
 import { showToast } from '$lib/stores/toast.js';
 
@@ -36,6 +37,9 @@ export async function runUpdateFlow(options = {}) {
 
   try {
     const releaseInfo = await invoke('check_github_update');
+    await invoke('update_last_check_time').catch((error) => {
+      console.warn('记录更新检查时间失败:', error);
+    });
 
     if (!releaseInfo?.available) {
       onStatusChange(silentWhenUpToDate ? '' : '当前已是最新版本');
@@ -43,6 +47,32 @@ export async function runUpdateFlow(options = {}) {
         showToast('当前已是最新版本', 'success');
       }
       return { updated: false, available: false };
+    }
+
+    if (!releaseInfo.autoUpdateReady) {
+      onStatusChange('发现新版本，但当前发布暂未准备好在线更新');
+      showToast('发现新版本，但当前发布暂未准备好在线更新', 'info', 4500);
+
+      if (confirmBeforeDownload && releaseInfo.releaseUrl) {
+        const shouldOpenRelease = await confirm({
+          title: '发现新版本',
+          message: `检测到新版本 ${releaseInfo.latestVersion}，但当前发布暂未准备好在线更新。是否打开发布页查看最新版？`,
+          confirmText: '打开发布页',
+          cancelText: '稍后再说',
+          tone: 'info',
+        });
+
+        if (shouldOpenRelease) {
+          await open(releaseInfo.releaseUrl);
+        }
+      }
+
+      return {
+        updated: false,
+        available: true,
+        autoUpdateReady: false,
+        releaseUrl: releaseInfo.releaseUrl,
+      };
     }
 
     if (confirmBeforeDownload) {

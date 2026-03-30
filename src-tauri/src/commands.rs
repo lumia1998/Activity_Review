@@ -148,14 +148,6 @@ struct GithubReleaseResponse {
     body: Option<String>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
-struct UpdaterJsonResponse {
-    version: String,
-    notes: Option<String>,
-    #[allow(dead_code)]
-    pub_date: Option<String>,
-}
-
 fn default_update_check_interval() -> u64 {
     DEFAULT_UPDATE_CHECK_INTERVAL_HOURS
 }
@@ -268,6 +260,83 @@ fn emit_update_status(
             percent,
         },
     );
+}
+
+async fn check_installable_update(app: &AppHandle) -> Option<GithubUpdateInfo> {
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let mut last_failure = None;
+    let mut no_update_source = None;
+
+    for endpoint in UPDATER_JSON_ENDPOINTS {
+        let source_label = update_source_label(endpoint);
+        let endpoint_url = match Url::parse(endpoint) {
+            Ok(url) => url,
+            Err(error) => {
+                last_failure = Some(format!("{source_label}: 解析更新源失败: {error}"));
+                continue;
+            }
+        };
+
+        let updater = match app
+            .updater_builder()
+            .endpoints(vec![endpoint_url])
+            .map(|builder| {
+                builder
+                    .timeout(Duration::from_secs(UPDATE_REQUEST_TIMEOUT_SECS))
+                    .configure_client(|client| {
+                        client
+                            .connect_timeout(Duration::from_secs(UPDATE_CONNECT_TIMEOUT_SECS))
+                            .user_agent("WorkReview-Updater")
+                    })
+            })
+            .and_then(|builder| builder.build())
+        {
+            Ok(updater) => updater,
+            Err(error) => {
+                last_failure = Some(format!("{source_label}: 构建更新器失败: {error}"));
+                continue;
+            }
+        };
+
+        match updater.check().await {
+            Ok(Some(update)) => {
+                return Some(GithubUpdateInfo {
+                    current_version: update.current_version,
+                    latest_version: update.version,
+                    available: true,
+                    auto_update_ready: true,
+                    release_url: GITHUB_LATEST_RELEASE_PAGE.to_string(),
+                    body: update.body,
+                    source: Some(source_label),
+                });
+            }
+            Ok(None) => {
+                no_update_source = Some(source_label);
+                continue;
+            }
+            Err(error) => {
+                last_failure = Some(format!("{source_label}: 检查可安装更新失败: {error}"));
+            }
+        }
+    }
+
+    if let Some(source) = no_update_source {
+        return Some(GithubUpdateInfo {
+            current_version: current_version.clone(),
+            latest_version: current_version,
+            available: false,
+            auto_update_ready: true,
+            release_url: GITHUB_LATEST_RELEASE_PAGE.to_string(),
+            body: None,
+            source: Some(source),
+        });
+    }
+
+    if let Some(failure) = last_failure {
+        log::warn!("安装型更新检查失败，回退到 GitHub Release API: {failure}");
+    }
+
+    None
 }
 
 impl Default for UpdateSettings {
@@ -1792,51 +1861,6 @@ fn should_check_for_updates(settings: &UpdateSettings) -> bool {
     elapsed_hours >= interval_hours
 }
 
-async fn check_updater_json(client: &reqwest::Client) -> Result<GithubUpdateInfo, AppError> {
-    let current_version = env!("CARGO_PKG_VERSION").to_string();
-    let mut last_error: Option<String> = None;
-
-    for endpoint in UPDATER_JSON_ENDPOINTS {
-        let response = match client.get(*endpoint).send().await {
-            Ok(response) => response,
-            Err(error) => {
-                last_error = Some(format!("{endpoint}: {error}"));
-                continue;
-            }
-        };
-
-        if !response.status().is_success() {
-            last_error = Some(format!("{endpoint}: HTTP {}", response.status()));
-            continue;
-        }
-
-        let updater = match response.json::<UpdaterJsonResponse>().await {
-            Ok(updater) => updater,
-            Err(error) => {
-                last_error = Some(format!("{endpoint}: 解析 updater.json 失败: {error}"));
-                continue;
-            }
-        };
-
-        let latest_version = normalize_version(&updater.version).to_string();
-        let has_update = compare_versions(&current_version, &latest_version) == Ordering::Less;
-
-        return Ok(GithubUpdateInfo {
-            current_version,
-            latest_version,
-            available: has_update,
-            auto_update_ready: true,
-            release_url: GITHUB_LATEST_RELEASE_PAGE.to_string(),
-            body: updater.notes,
-            source: Some((*endpoint).to_string()),
-        });
-    }
-
-    Err(AppError::Unknown(last_error.unwrap_or_else(|| {
-        "所有 updater.json 更新源都不可用".to_string()
-    })))
-}
-
 /// 获取今日统计
 #[tauri::command]
 pub async fn get_today_stats(
@@ -2998,6 +3022,50 @@ async fn test_claude(
     }
 }
 
+fn parse_ollama_model_names(data: &serde_json::Value) -> Result<Vec<String>, AppError> {
+    let models = data["models"]
+        .as_array()
+        .ok_or_else(|| AppError::Unknown("无法获取 Ollama 模型列表".to_string()))?;
+
+    let mut names = models
+        .iter()
+        .filter_map(|model| model["name"].as_str().map(|name| name.trim().to_string()))
+        .filter(|name| !name.is_empty())
+        .collect::<Vec<_>>();
+
+    names.sort();
+    names.dedup();
+
+    Ok(names)
+}
+
+#[tauri::command]
+pub async fn get_ollama_models(endpoint: String) -> Result<Vec<String>, AppError> {
+    let endpoint = endpoint.trim().trim_end_matches('/').to_string();
+    if endpoint.is_empty() {
+        return Err(AppError::Config("Ollama 地址不能为空".to_string()));
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+    let response = client
+        .get(format!("{endpoint}/api/tags"))
+        .send()
+        .await
+        .map_err(|error| AppError::Analysis(format!("无法连接到 Ollama 服务: {error}")))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Analysis(format!(
+            "Ollama 服务返回错误: {}",
+            response.status()
+        )));
+    }
+
+    let data: serde_json::Value = response.json().await?;
+    parse_ollama_model_names(&data)
+}
+
 /// 获取支持的 AI 提供商列表
 #[tauri::command]
 pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
@@ -3071,6 +3139,15 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "description": "字节跳动大模型",
             "default_endpoint": "https://ark.cn-beijing.volces.com/api/v3",
             "default_model": "doubao-lite-4k",
+            "requires_api_key": true,
+            "supports_vision": false,
+        }),
+        serde_json::json!({
+            "id": "minimax",
+            "name": "稀宇科技 MiniMax",
+            "description": "MiniMax 文本模型，兼容 OpenAI 格式",
+            "default_endpoint": "https://api.minimaxi.com/v1",
+            "default_model": "MiniMax-M2.5",
             "requires_api_key": true,
             "supports_vision": false,
         }),
@@ -3524,7 +3601,7 @@ pub async fn cleanup_old_data_dir(
 
 /// 基于 updater.json 优先检查更新；若自动更新元数据暂未就绪，则回退到 GitHub Release API。
 #[tauri::command]
-pub async fn check_github_update() -> Result<GithubUpdateInfo, AppError> {
+pub async fn check_github_update(app: AppHandle) -> Result<GithubUpdateInfo, AppError> {
     let client = reqwest::Client::builder()
         .user_agent("WorkReview-Updater")
         .timeout(Duration::from_secs(UPDATE_REQUEST_TIMEOUT_SECS))
@@ -3532,7 +3609,7 @@ pub async fn check_github_update() -> Result<GithubUpdateInfo, AppError> {
         .build()
         .map_err(|e| AppError::Unknown(format!("创建更新检查客户端失败: {e}")))?;
 
-    if let Ok(update_info) = check_updater_json(&client).await {
+    if let Some(update_info) = check_installable_update(&app).await {
         return Ok(update_info);
     }
 
@@ -5514,9 +5591,9 @@ mod tests {
         detect_assistant_question_kind, detect_assistant_question_kind_with_mode,
         export_daily_report_markdown, format_browser_url_for_display, macos_score_app_bundle_name,
         merge_windows_icon_lookup_candidates, normalize_macos_app_lookup_name,
-        normalize_saved_report_ai_mode, resolve_saved_report_metadata, AssistantChatMessage,
-        AssistantQuestionKind, AssistantReasoningMode, UPDATER_JSON_ENDPOINTS,
-        UPDATE_CONNECT_TIMEOUT_SECS, UPDATE_REQUEST_TIMEOUT_SECS,
+        normalize_saved_report_ai_mode, parse_ollama_model_names, resolve_saved_report_metadata,
+        AssistantChatMessage, AssistantQuestionKind, AssistantReasoningMode,
+        UPDATER_JSON_ENDPOINTS, UPDATE_CONNECT_TIMEOUT_SECS, UPDATE_REQUEST_TIMEOUT_SECS,
     };
     use crate::config::AiMode;
     use crate::database::MemorySearchItem;
@@ -5801,6 +5878,23 @@ mod tests {
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
+    #[test]
+    fn 应能解析_ollama_模型列表响应() {
+        let payload = serde_json::json!({
+            "models": [
+                { "name": "qwen2.5:latest" },
+                { "name": "llama3.1:8b" },
+                { "name": "qwen2.5:latest" }
+            ]
+        });
+
+        let names = parse_ollama_model_names(&payload).expect("应能解析模型列表");
+
+        assert_eq!(
+            names,
+            vec!["llama3.1:8b".to_string(), "qwen2.5:latest".to_string()]
+        );
+    }
     #[test]
     fn 助手问题分类应识别阶段总结与过程复盘和证据追问() {
         assert_eq!(

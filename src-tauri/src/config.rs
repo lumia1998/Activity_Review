@@ -34,6 +34,9 @@ pub enum AiProvider {
     /// 火山引擎 豆包
     #[serde(rename = "doubao")]
     Doubao,
+    /// 稀宇科技 MiniMax
+    #[serde(rename = "minimax")]
+    MiniMax,
 }
 
 impl AiProvider {
@@ -50,6 +53,7 @@ impl AiProvider {
             AiProvider::Zhipu => "智谱 ChatGLM",
             AiProvider::Moonshot => "月之暗面 Kimi",
             AiProvider::Doubao => "火山引擎 豆包",
+            AiProvider::MiniMax => "稀宇科技 MiniMax",
         }
     }
 
@@ -66,6 +70,7 @@ impl AiProvider {
             AiProvider::Zhipu => "https://open.bigmodel.cn/api/paas/v4",
             AiProvider::Moonshot => "https://api.moonshot.cn/v1",
             AiProvider::Doubao => "https://ark.cn-beijing.volces.com/api/v3",
+            AiProvider::MiniMax => "https://api.minimaxi.com/v1",
         }
     }
 
@@ -82,6 +87,7 @@ impl AiProvider {
             AiProvider::Zhipu => "glm-4-flash",
             AiProvider::Moonshot => "moonshot-v1-8k",
             AiProvider::Doubao => "doubao-lite-4k",
+            AiProvider::MiniMax => "MiniMax-M2.5",
         }
     }
 
@@ -96,6 +102,7 @@ impl AiProvider {
                 | AiProvider::Zhipu
                 | AiProvider::Moonshot
                 | AiProvider::Doubao
+                | AiProvider::MiniMax
         )
     }
 }
@@ -624,11 +631,10 @@ impl AppConfig {
             return;
         }
 
-        let default_profile_id = "default-text-model";
         if let Some(profile) = self
             .text_model_profiles
             .iter_mut()
-            .find(|profile| profile.id == default_profile_id)
+            .find(|profile| profile.id == "default-text-model")
         {
             profile.name = default_profile_name(&self.text_model);
             profile.model_config = self.text_model.clone();
@@ -649,7 +655,7 @@ impl AppConfig {
         self.text_model_profiles.insert(
             0,
             TextModelProfile {
-                id: default_profile_id.to_string(),
+                id: "default-text-model".to_string(),
                 name: default_profile_name(&self.text_model),
                 model_config: self.text_model.clone(),
                 test_status: default_connection_status(),
@@ -781,7 +787,7 @@ fn normalize_optional_string(value: Option<String>) -> Option<String> {
 mod tests {
     use super::{
         default_avatar_opacity, default_avatar_scale, normalize_app_category_rules,
-        normalize_avatar_opacity, normalize_avatar_scale, AppCategoryRule, AppConfig,
+        normalize_avatar_opacity, normalize_avatar_scale, AiProvider, AppCategoryRule, AppConfig,
         ScreenshotDisplayMode, WebsiteSemanticRule,
     };
 
@@ -839,6 +845,13 @@ mod tests {
         let config = AppConfig::default();
 
         assert!(config.storage.screenshots_enabled);
+    }
+
+    #[test]
+    fn minimax应使用_openai_兼容配置() {
+        assert!(AiProvider::MiniMax.is_openai_compatible());
+        assert_eq!(AiProvider::MiniMax.default_endpoint(), "https://api.minimaxi.com/v1");
+        assert_eq!(AiProvider::MiniMax.default_model(), "MiniMax-M2.5");
     }
 
     #[test]

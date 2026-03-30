@@ -36,3 +36,51 @@ test('日报导出目录应从 AI 设置移到存储设置', async () => {
   assert.match(storageSource, /整桌面拼接截图/);
   assert.match(storageSource, /把所有显示器内容拼成一张完整截图/);
 });
+
+test('Ollama 提供商应支持获取模型列表并保留手动输入回退', async () => {
+  const source = await readFile(
+    new URL('./components/SettingsAI.svelte', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(source, /invoke\('get_ollama_models'/);
+  assert.match(source, /refreshOllamaModels/);
+  assert.match(source, /ollamaModels/);
+  assert.match(source, /provider === 'ollama'/);
+  assert.match(source, /<select/);
+  assert.match(source, /手动输入模型名称/);
+  assert.match(source, /刷新模型列表/);
+});
+
+test('Ollama 刷新模型列表后应给出反馈并在当前模型失效时自动回填可用模型', async () => {
+  const source = await readFile(
+    new URL('./components/SettingsAI.svelte', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(source, /!ollamaModels.includes\(config\.text_model\.model\)/);
+  assert.match(source, /已获取 \$\{ollamaModels\.length\} 个模型/);
+});
+
+test('Ollama 模型列表为空时应保留当前模型值，避免下拉框显示空白', async () => {
+  const source = await readFile(
+    new URL('./components/SettingsAI.svelte', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(source, /let selectedOllamaModel = '';/);
+  assert.match(source, /function getOllamaFallbackOptionLabel\(\)/);
+  assert.match(source, /当前配置：\$\{currentModel\}/);
+  assert.match(source, /\{getOllamaFallbackOptionLabel\(\)\}/);
+});
+
+test('Ollama 下拉列表应只展示实际返回的模型，并明确区分手动输入值', async () => {
+  const source = await readFile(
+    new URL('./components/SettingsAI.svelte', import.meta.url),
+    'utf8'
+  );
+
+  assert.doesNotMatch(source, /return \[config\.text_model\.model, \.\.\.ollamaModels\];/);
+  assert.match(source, /当前手动输入的模型不在 Ollama 列表中/);
+  assert.match(source, /#each ollamaModels as model \(model\)/);
+});

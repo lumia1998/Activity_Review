@@ -254,7 +254,6 @@
           const shouldCheck = await invoke('should_check_updates');
           if (!shouldCheck) return;
 
-          await invoke('update_last_check_time');
           await runUpdateFlow({
             silentWhenUpToDate: true,
             confirmBeforeDownload: true,

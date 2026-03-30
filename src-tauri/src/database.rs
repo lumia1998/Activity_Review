@@ -85,6 +85,13 @@ pub struct CategoryUsage {
     pub duration: i64,
 }
 
+/// 按小时活跃度统计
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct HourlyActivityBucket {
+    pub hour: i32,
+    pub duration: i64,
+}
+
 /// 小时摘要
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HourlySummary {
@@ -122,6 +129,9 @@ pub struct DailyStats {
     /// 工作时间内的活动时长（新增）
     #[serde(default)]
     pub work_time_duration: i64,
+    /// 24 小时活跃度分布
+    #[serde(default)]
+    pub hourly_activity_distribution: Vec<HourlyActivityBucket>,
 }
 
 /// 域名使用统计（按域名分组）
@@ -1003,6 +1013,9 @@ impl Database {
             std::collections::HashMap::new();
         let mut url_duration_map: std::collections::HashMap<String, i64> =
             std::collections::HashMap::new();
+        let mut hourly_activity_distribution: Vec<HourlyActivityBucket> = (0..24)
+            .map(|hour| HourlyActivityBucket { hour, duration: 0 })
+            .collect();
         let mut domain_semantic_map: std::collections::HashMap<
             String,
             std::collections::HashMap<String, i64>,
@@ -1030,6 +1043,25 @@ impl Database {
             if work_end_ts > work_start_ts {
                 work_time_duration +=
                     calculate_overlap_duration(timestamp, duration, work_start_ts, work_end_ts);
+            }
+
+            let interval_start = timestamp.saturating_sub(duration);
+            let overlap_start = interval_start.max(start_ts);
+            let overlap_end = timestamp.min(end_ts);
+            if overlap_end > overlap_start {
+                let start_hour = (((overlap_start - start_ts) / 3600).clamp(0, 23)) as usize;
+                let end_hour = ((((overlap_end - 1) - start_ts) / 3600).clamp(0, 23)) as usize;
+
+                for hour in start_hour..=end_hour {
+                    let hour_start_ts = start_ts + hour as i64 * 3600;
+                    let hour_end_ts = hour_start_ts + 3600;
+                    let hour_duration =
+                        (overlap_end.min(hour_end_ts) - overlap_start.max(hour_start_ts)).max(0);
+
+                    if hour_duration > 0 {
+                        hourly_activity_distribution[hour].duration += hour_duration;
+                    }
+                }
             }
 
             let normalized_name = crate::monitor::normalize_display_app_name(&app_name);
@@ -1244,6 +1276,7 @@ impl Database {
             domain_usage,
             browser_usage,
             work_time_duration,
+            hourly_activity_distribution,
         })
     }
 
@@ -2191,6 +2224,71 @@ mod tests {
             0
         );
         assert_eq!(stats.app_usage.len(), 2);
+
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn 今日统计应输出按小时活跃度分布() {
+        let db_path = temp_db_path("daily-stats-hourly-distribution");
+        let db = Database::new(&db_path).expect("创建测试数据库失败");
+        let date = "2026-03-27";
+
+        let records = vec![
+            Activity {
+                id: None,
+                timestamp: local_ts(date, 10, 30),
+                app_name: "Code".to_string(),
+                window_title: "main.rs".to_string(),
+                screenshot_path: "code-a.jpg".to_string(),
+                ocr_text: None,
+                category: "development".to_string(),
+                duration: 30 * 60,
+                browser_url: None,
+                executable_path: None,
+                semantic_category: None,
+                semantic_confidence: None,
+            },
+            Activity {
+                id: None,
+                timestamp: local_ts(date, 11, 10),
+                app_name: "Chrome".to_string(),
+                window_title: "docs".to_string(),
+                screenshot_path: "chrome-a.jpg".to_string(),
+                ocr_text: None,
+                category: "browser".to_string(),
+                duration: 20 * 60,
+                browser_url: Some("https://example.com/docs".to_string()),
+                executable_path: None,
+                semantic_category: Some("资料阅读".to_string()),
+                semantic_confidence: Some(80),
+            },
+        ];
+
+        for activity in &records {
+            db.insert_activity(activity).expect("插入测试数据失败");
+        }
+
+        let stats = db
+            .get_daily_stats_with_work_time(date, 9, 18, 0, 0)
+            .expect("读取今日统计失败");
+
+        assert_eq!(stats.hourly_activity_distribution.len(), 24);
+        assert_eq!(stats.hourly_activity_distribution[10].hour, 10);
+        assert_eq!(stats.hourly_activity_distribution[10].duration, 40 * 60);
+        assert_eq!(stats.hourly_activity_distribution[11].hour, 11);
+        assert_eq!(stats.hourly_activity_distribution[11].duration, 10 * 60);
+        assert!(stats
+            .hourly_activity_distribution
+            .iter()
+            .enumerate()
+            .all(|(hour, bucket)| {
+                if hour == 10 || hour == 11 {
+                    true
+                } else {
+                    bucket.duration == 0
+                }
+            }));
 
         let _ = std::fs::remove_file(db_path);
     }
