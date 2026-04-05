@@ -16,7 +16,7 @@
   <a href="https://github.com/wm94i/Work_Review/releases/latest">
     <img src="https://img.shields.io/github/v/release/wm94i/Work_Review?style=flat-square&color=blue" alt="Release">
   </a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20(X11)-blue?style=flat-square" alt="Platform">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20(X11%20%7C%20Wayland)-blue?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/github/license/wm94i/Work_Review?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/built%20with-Tauri%202%20%2B%20Rust-orange?style=flat-square" alt="Stack">
 </p>
@@ -146,17 +146,23 @@ Download the latest build from [Releases](https://github.com/wm94i/Work_Review/r
 | macOS Apple Silicon | `.dmg` |
 | macOS Intel | `.dmg` |
 | Windows | `.exe` |
-| Linux (X11) | `.deb` / `.AppImage` |
+| Linux (X11 / Mainstream Wayland) | `.deb` / `.AppImage` |
 
 ### Linux Dependencies
 
-Required:
+Base dependencies:
 
 ```bash
-sudo apt install xdotool xprintidle x11-utils tesseract-ocr
+sudo apt install xprintidle tesseract-ocr
 ```
 
-At least one screenshot tool:
+Additional X11 dependencies:
+
+```bash
+sudo apt install xdotool x11-utils
+```
+
+X11 screenshot tools, install at least one:
 
 ```bash
 sudo apt install scrot
@@ -165,7 +171,29 @@ sudo apt install maim
 sudo apt install imagemagick
 ```
 
-> Linux currently supports window-level tracking on X11. Browser URL tracking is not available there yet.
+Common Wayland providers / tools:
+
+```bash
+# GNOME
+gdbus
+
+# KDE Plasma
+kdotool
+
+# Sway
+swaymsg
+
+# Hyprland
+hyprctl
+
+# Wayland screenshot tools, install at least one
+grim / gnome-screenshot / spectacle
+```
+
+> Linux now supports X11 and a mainstream Wayland provider chain (GNOME / KDE Plasma / Sway / Hyprland).
+> Browser URL recovery on Linux is now best-effort:
+> Firefox-family browsers (Firefox / Zen / LibreWolf / Waterfox) prefer sessionstore recovery;
+> Chromium-family browsers still rely mainly on title extraction plus recent-record fallback.
 
 ---
 
