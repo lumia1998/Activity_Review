@@ -19,6 +19,10 @@ test('多屏幕截图应按活动窗口所在屏幕选屏', async () => {
   assert.match(screenshotSource, /from_raw_hmonitor/);
   assert.match(screenshotSource, /GetMonitorInfoW/);
   assert.match(screenshotSource, /capture_target_monitor_rect/);
+  assert.match(screenshotSource, /xrandr/);
+  assert.match(screenshotSource, /org\.gnome\.Mutter\.DisplayConfig/);
+  assert.match(screenshotSource, /crop_linux_capture_to_rect/);
+  assert.match(screenshotSource, /linux_capture_target_rect/);
 });
 
 test('选屏辅助函数应在测试构建中可见，避免 Linux cargo test 因条件编译缺失而失败', async () => {

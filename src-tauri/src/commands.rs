@@ -8,6 +8,11 @@ use crate::database::{
     HourlyActivityBucket, MemorySearchItem, UrlDetail, UrlUsage,
 };
 use crate::error::AppError;
+#[cfg(target_os = "linux")]
+use crate::linux_session::{
+    current_linux_desktop_environment, current_linux_desktop_session, LinuxDesktopEnvironment,
+    LinuxDesktopSession,
+};
 use crate::privacy::PrivacyFilter;
 use crate::screenshot::ScreenshotService;
 use crate::storage::StorageManager;
@@ -123,6 +128,18 @@ pub struct GithubUpdateInstallResult {
     pub source: Option<String>,
     pub message: String,
     pub attempted_sources: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LinuxSessionSupportInfo {
+    pub platform: String,
+    pub session_type: String,
+    pub desktop_environment: String,
+    pub active_window_provider: String,
+    pub active_window_supported: bool,
+    pub screenshot_supported: bool,
+    pub browser_url_support_level: String,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -3911,6 +3928,46 @@ pub async fn get_runtime_platform() -> Result<String, AppError> {
 }
 
 #[tauri::command]
+pub async fn get_linux_session_support() -> Result<LinuxSessionSupportInfo, AppError> {
+    #[cfg(target_os = "linux")]
+    {
+        let session = current_linux_desktop_session();
+        let desktop_environment = current_linux_desktop_environment();
+        let active_window_provider =
+            crate::monitor::current_linux_active_window_provider(session, desktop_environment);
+        let active_window_supported = active_window_provider.is_some();
+        let browser_url_support_level = if active_window_supported {
+            "mixed"
+        } else {
+            "limited"
+        };
+
+        return Ok(LinuxSessionSupportInfo {
+            platform: "linux".to_string(),
+            session_type: session.as_str().to_string(),
+            desktop_environment: desktop_environment.as_str().to_string(),
+            active_window_provider: active_window_provider.unwrap_or("none").to_string(),
+            active_window_supported,
+            screenshot_supported: session.supports_screenshot_capture(),
+            browser_url_support_level: browser_url_support_level.to_string(),
+        });
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(LinuxSessionSupportInfo {
+            platform: std::env::consts::OS.to_string(),
+            session_type: "not_applicable".to_string(),
+            desktop_environment: "not_applicable".to_string(),
+            active_window_provider: "not_applicable".to_string(),
+            active_window_supported: false,
+            screenshot_supported: false,
+            browser_url_support_level: "not_applicable".to_string(),
+        })
+    }
+}
+
+#[tauri::command]
 pub async fn quit_app_for_update(app: AppHandle) -> Result<(), AppError> {
     app.exit(0);
     Ok(())
@@ -4569,40 +4626,67 @@ pub async fn take_screenshot(state: State<'_, Arc<Mutex<AppState>>>) -> Result<A
         let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
 
         // 获取当前活动窗口
-        let active_window = crate::monitor::get_active_window()?;
+        let active_window = crate::monitor::get_active_window().ok();
+
+        #[cfg(target_os = "linux")]
+        let active_window = if active_window.is_none()
+            && !matches!(current_linux_desktop_session(), LinuxDesktopSession::Wayland)
+        {
+            return Err(AppError::Unknown("获取当前活动窗口失败".to_string()));
+        } else {
+            active_window
+        };
+
+        #[cfg(not(target_os = "linux"))]
+        let active_window = match active_window {
+            Some(active_window) => Some(active_window),
+            None => return Err(AppError::Unknown("获取当前活动窗口失败".to_string())),
+        };
 
         // 检查隐私过滤
-        if state.privacy_filter.check_privacy_full(
-            &active_window.app_name,
-            &active_window.window_title,
-            active_window.browser_url.as_deref(),
-        ) == crate::privacy::PrivacyAction::Skip
-        {
-            return Err(AppError::Privacy("当前窗口被隐私规则过滤".to_string()));
+        if let Some(active_window) = active_window.as_ref() {
+            if state.privacy_filter.check_privacy_full(
+                &active_window.app_name,
+                &active_window.window_title,
+                active_window.browser_url.as_deref(),
+            ) == crate::privacy::PrivacyAction::Skip
+            {
+                return Err(AppError::Privacy("当前窗口被隐私规则过滤".to_string()));
+            }
         }
 
         // 执行截屏
         let result = state
             .screenshot_service
-            .capture_for_window(Some(&active_window))?;
+            .capture_for_window(active_window.as_ref())?;
         let relative_path = state.screenshot_service.get_relative_path(&result.path);
-        let classification = crate::resolve_activity_classification(
-            &state.config,
-            &active_window.app_name,
-            &active_window.window_title,
-            active_window.browser_url.as_deref(),
-        );
+        let app_name = active_window
+            .as_ref()
+            .map(|window| window.app_name.clone())
+            .unwrap_or_else(|| "Wayland Session".to_string());
+        let window_title = active_window
+            .as_ref()
+            .map(|window| window.window_title.clone())
+            .unwrap_or_else(|| "Wayland screenshot".to_string());
+        let browser_url = active_window
+            .as_ref()
+            .and_then(|window| window.browser_url.clone());
+        let executable_path = active_window
+            .as_ref()
+            .and_then(|window| window.executable_path.clone());
+        let classification =
+            crate::resolve_activity_classification(&state.config, &app_name, &window_title, browser_url.as_deref());
 
         (
             result,
-            active_window.app_name,
-            active_window.window_title,
-            active_window.browser_url,
+            app_name,
+            window_title,
+            browser_url,
             classification.base_category,
             classification.semantic_category,
             classification.confidence,
             relative_path,
-            active_window.executable_path,
+            executable_path,
         )
     };
 

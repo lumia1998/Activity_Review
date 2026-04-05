@@ -2,6 +2,8 @@
 // 检测用户是否处于空闲状态（无键鼠操作且屏幕内容无变化）
 // 用于解决"应用挂着不用但时长继续累加"的问题
 
+#[cfg(target_os = "linux")]
+use crate::linux_session::{current_linux_desktop_session, LinuxDesktopSession};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 上一次截图的哈希值
@@ -156,11 +158,39 @@ fn get_idle_seconds() -> u64 {
 
 #[cfg(target_os = "linux")]
 fn get_idle_seconds() -> u64 {
-    // 使用 xprintidle 获取空闲毫秒数
     use std::process::Command;
 
-    let output = Command::new("xprintidle").output();
+    if matches!(current_linux_desktop_session(), LinuxDesktopSession::Wayland) {
+        let output = Command::new("dbus-send")
+            .args([
+                "--session",
+                "--print-reply",
+                "--dest=org.freedesktop.ScreenSaver",
+                "/org/freedesktop/ScreenSaver",
+                "org.freedesktop.ScreenSaver.GetSessionIdleTime",
+            ])
+            .output();
 
+        if let Ok(result) = output {
+            if result.status.success() {
+                let stdout = String::from_utf8_lossy(&result.stdout);
+                if let Some(idle_ms) = stdout
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .windows(2)
+                    .find_map(|parts| match parts {
+                        ["uint32", value] => value.parse::<u64>().ok(),
+                        _ => None,
+                    })
+                {
+                    return idle_ms / 1000;
+                }
+            }
+        }
+    }
+
+    // X11 以及 Wayland 回退到 xprintidle
+    let output = Command::new("xprintidle").output();
     match output {
         Ok(result) if result.status.success() => {
             let stdout = String::from_utf8_lossy(&result.stdout);

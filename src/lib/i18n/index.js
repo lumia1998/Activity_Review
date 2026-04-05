@@ -302,6 +302,24 @@ const MESSAGES = {
       dataDirTitle: '本地数据目录',
       dataDirSubtitle: 'Local Storage',
       dataDirDescription: '本地数据默认保存在这里，可在设置页“存储”中修改位置。',
+      linuxSessionTitle: 'Linux 会话兼容性',
+      linuxSessionX11Ready: '当前是 X11 会话，窗口追踪与截图链路都已启用。',
+      linuxSessionGnomeWaylandReady:
+        '当前是 GNOME Wayland，会通过 Focused Window D-Bus provider 恢复基础窗口追踪。',
+      linuxSessionGnomeWaylandMissingProvider:
+        '当前是 GNOME Wayland，但未检测到可用的 Focused Window D-Bus provider，活动窗口追踪仍不可用。',
+      linuxSessionWaylandWarning:
+        '当前是 Wayland 会话：已补齐截图链路，但活动窗口追踪仍在适配中，自动记录能力会受限。',
+      linuxSessionProviderLabel: '活动窗口 Provider',
+      linuxSessionScreenshotReady: '截图链路已就绪',
+      linuxSessionScreenshotPending: '截图链路未就绪',
+      linuxSessionWindowReady: '活动窗口追踪已就绪',
+      linuxSessionWindowPending: '活动窗口追踪待适配',
+      linuxBrowserUrlCapabilityTitle: 'Linux Browser URL 能力',
+      linuxBrowserUrlSupportMixed:
+        'Firefox 系可恢复真实页面 URL，Chromium 系仍以标题提取和最近记录兜底为主。',
+      linuxBrowserUrlSupportLimited:
+        '当前会话的活动窗口 provider 不可用，Browser URL 恢复能力也会受限。',
       updateStatus: '更新状态',
       supportTitle: '赞助支持',
       supportCopy: '如果这个项目对你有帮助，帮你省了点时间，欢迎请我喝杯咖啡 ☕',
@@ -800,6 +818,24 @@ const MESSAGES = {
       dataDirTitle: 'Local Data Folder',
       dataDirSubtitle: 'Local Storage',
       dataDirDescription: 'Your local data is stored here by default and can be changed from Settings > Storage.',
+      linuxSessionTitle: 'Linux Session Compatibility',
+      linuxSessionX11Ready: 'The current session is X11, so both window tracking and screenshot capture are available.',
+      linuxSessionGnomeWaylandReady:
+        'The current session is GNOME Wayland, and base window tracking is restored through the Focused Window D-Bus provider.',
+      linuxSessionGnomeWaylandMissingProvider:
+        'The current session is GNOME Wayland, but no usable Focused Window D-Bus provider was detected, so active-window tracking is still unavailable.',
+      linuxSessionWaylandWarning:
+        'The current session is Wayland. Screenshot capture is now routed, but active-window tracking is still pending adaptation, so automatic recording is limited.',
+      linuxSessionProviderLabel: 'Active Window Provider',
+      linuxSessionScreenshotReady: 'Screenshot path ready',
+      linuxSessionScreenshotPending: 'Screenshot path unavailable',
+      linuxSessionWindowReady: 'Active-window tracking ready',
+      linuxSessionWindowPending: 'Active-window tracking pending',
+      linuxBrowserUrlCapabilityTitle: 'Linux Browser URL Capability',
+      linuxBrowserUrlSupportMixed:
+        'Firefox-family browsers can recover real page URLs, while Chromium-family browsers still rely mainly on title extraction and recent-record fallback.',
+      linuxBrowserUrlSupportLimited:
+        'The current session has no usable active-window provider, so browser URL recovery is also limited.',
       updateStatus: 'Update Status',
       supportTitle: 'Support',
       supportCopy: 'If this project helps you and saves you a bit of time, feel free to buy me a coffee ☕',
@@ -1305,6 +1341,24 @@ const MESSAGES = {
       dataDirTitle: '本地資料目錄',
       dataDirSubtitle: 'Local Storage',
       dataDirDescription: '本地資料預設保存在這裡，可在設定頁的「儲存」中修改位置。',
+      linuxSessionTitle: 'Linux 工作階段相容性',
+      linuxSessionX11Ready: '目前是 X11 工作階段，窗口追蹤與截圖鏈路都已啟用。',
+      linuxSessionGnomeWaylandReady:
+        '目前是 GNOME Wayland，會透過 Focused Window D-Bus provider 恢復基礎窗口追蹤。',
+      linuxSessionGnomeWaylandMissingProvider:
+        '目前是 GNOME Wayland，但未檢測到可用的 Focused Window D-Bus provider，活動窗口追蹤仍不可用。',
+      linuxSessionWaylandWarning:
+        '目前是 Wayland 工作階段：已補齊截圖鏈路，但活動窗口追蹤仍在適配中，自動記錄能力會受限。',
+      linuxSessionProviderLabel: '活動窗口 Provider',
+      linuxSessionScreenshotReady: '截圖鏈路已就緒',
+      linuxSessionScreenshotPending: '截圖鏈路未就緒',
+      linuxSessionWindowReady: '活動窗口追蹤已就緒',
+      linuxSessionWindowPending: '活動窗口追蹤待適配',
+      linuxBrowserUrlCapabilityTitle: 'Linux Browser URL 能力',
+      linuxBrowserUrlSupportMixed:
+        'Firefox 系可恢復真實頁面 URL，Chromium 系仍主要依賴標題提取與最近記錄兜底。',
+      linuxBrowserUrlSupportLimited:
+        '目前工作階段的活動窗口 provider 不可用，Browser URL 恢復能力也會受限。',
       updateStatus: '更新狀態',
       supportTitle: '贊助支持',
       supportCopy: '如果這個專案對你有幫助、幫你省了點時間，歡迎請我喝杯咖啡 ☕',

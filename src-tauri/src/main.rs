@@ -15,6 +15,7 @@ mod config;
 mod database;
 mod error;
 mod idle_detector;
+mod linux_session;
 mod monitor;
 mod ocr;
 mod ocr_logger;
@@ -2845,6 +2846,7 @@ async fn main() {
             commands::get_data_dir,
             commands::get_default_data_dir,
             commands::get_runtime_platform,
+            commands::get_linux_session_support,
             commands::change_data_dir,
             commands::cleanup_old_data_dir,
             commands::check_github_update,

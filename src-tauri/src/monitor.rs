@@ -1,6 +1,11 @@
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use crate::error::AppError;
 use crate::error::Result;
+#[cfg(target_os = "linux")]
+use crate::linux_session::{
+    current_linux_desktop_environment, current_linux_desktop_session, LinuxDesktopEnvironment,
+    LinuxDesktopSession,
+};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
@@ -761,23 +766,43 @@ fn extract_active_tab_url_from_session_store_value(
     best_match.map(|(_, _, url)| url)
 }
 
-#[cfg(target_os = "macos")]
-fn firefox_family_session_store_base_dir_macos(app_lower: &str) -> Option<PathBuf> {
-    let app_support_dir = dirs::data_dir()?;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn firefox_family_session_store_base_dir(app_lower: &str) -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let app_support_dir = dirs::data_dir()?;
 
-    if app_lower.contains("firefox") {
-        Some(app_support_dir.join("Firefox"))
-    } else if app_lower.contains("zen") {
-        Some(app_support_dir.join("Zen"))
-    } else {
-        None
+        if app_lower.contains("firefox") {
+            Some(app_support_dir.join("Firefox"))
+        } else if app_lower.contains("zen") {
+            Some(app_support_dir.join("Zen"))
+        } else {
+            None
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let home_dir = dirs::home_dir()?;
+
+        if app_lower.contains("librewolf") {
+            Some(home_dir.join(".librewolf"))
+        } else if app_lower.contains("waterfox") {
+            Some(home_dir.join(".waterfox"))
+        } else if app_lower.contains("zen") {
+            Some(home_dir.join(".zen"))
+        } else if app_lower.contains("firefox") {
+            Some(home_dir.join(".mozilla/firefox"))
+        } else {
+            None
+        }
     }
 }
 
-#[cfg(target_os = "macos")]
-fn firefox_family_session_store_url_macos(app_name: &str, window_title: &str) -> Option<String> {
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn firefox_family_session_store_url(app_name: &str, window_title: &str) -> Option<String> {
     let app_lower = app_name.to_lowercase();
-    let base_dir = firefox_family_session_store_base_dir_macos(&app_lower)?;
+    let base_dir = firefox_family_session_store_base_dir(&app_lower)?;
     let ini_path = base_dir.join("profiles.ini");
     let ini_content = std::fs::read_to_string(&ini_path).ok()?;
     let profile_dir = firefox_family_profile_dir_from_ini(&base_dir, &ini_content)?;
@@ -1318,9 +1343,15 @@ mod tests {
     use super::{
         categorize_app, categorize_app_with_rules, decode_mozlz4_bytes,
         extract_active_tab_url_from_session_store_value, extract_url_from_title,
-        firefox_family_profile_dir_from_ini, is_browser_app, is_probable_domain,
-        normalize_macos_frontmost_app_name, normalize_possible_url, remember_browser_url_log,
+        firefox_family_profile_dir_from_ini,
+        find_focused_sway_node, is_browser_app, is_probable_domain,
+        normalize_macos_frontmost_app_name, normalize_possible_url,
+        parse_gnome_focused_window_dbus_output, parse_hyprland_window_bounds,
+        parse_kdotool_geometry_output, parse_xdotool_geometry_shell_output,
+        remember_browser_url_log, resolve_browser_url_for_window_linux, WindowBounds,
     };
+    #[cfg(target_os = "linux")]
+    use super::firefox_family_session_store_base_dir;
     use std::collections::HashMap;
     use std::path::Path;
     #[cfg(target_os = "macos")]
@@ -1698,6 +1729,137 @@ Path=Profiles/wkm9x2lf.Default (release)
             "sessionstore:firefox",
             "https://example.com/b"
         ));
+    }
+
+    #[test]
+    fn gnome_focused_window_dbus输出应解析为活动窗口() {
+        let output =
+            "('{\"title\":\"OpenAI Docs - Firefox\",\"wm_class\":\"firefox\",\"wm_class_instance\":\"Navigator\",\"x\":120,\"y\":48,\"width\":1440,\"height\":960,\"pid\":4242}',)";
+
+        let window = parse_gnome_focused_window_dbus_output(output).expect("应解析成功");
+
+        assert_eq!(window.window_title, "OpenAI Docs - Firefox");
+        assert_eq!(window.app_name, "Firefox");
+        assert_eq!(window.browser_url, None);
+        assert_eq!(
+            window.window_bounds,
+            Some(WindowBounds {
+                x: 120,
+                y: 48,
+                width: 1440,
+                height: 960,
+            })
+        );
+    }
+
+    #[test]
+    fn gnome_focused_window_dbus空对象应视为无活动窗口() {
+        assert!(parse_gnome_focused_window_dbus_output("('{}',)").is_err());
+    }
+
+    #[test]
+    fn xdotool几何输出应解析为窗口边界() {
+        let output = "X=80\nY=64\nWIDTH=1728\nHEIGHT=1117\nSCREEN=0\n";
+        assert_eq!(
+            parse_xdotool_geometry_shell_output(output),
+            Some(WindowBounds {
+                x: 80,
+                y: 64,
+                width: 1728,
+                height: 1117,
+            })
+        );
+    }
+
+    #[test]
+    fn kdotool几何输出应解析为窗口边界() {
+        let output = "Position: 40,88 (screen: 0)\nGeometry: 1600x900\n";
+        assert_eq!(
+            parse_kdotool_geometry_output(output),
+            Some(WindowBounds {
+                x: 40,
+                y: 88,
+                width: 1600,
+                height: 900,
+            })
+        );
+    }
+
+    #[test]
+    fn sway_get_tree_focused节点应解析为活动窗口节点() {
+        let tree = serde_json::json!({
+            "nodes": [
+                {
+                    "focused": false,
+                    "nodes": [],
+                    "floating_nodes": []
+                },
+                {
+                    "focused": true,
+                    "name": "README.md - nvim",
+                    "app_id": "foot",
+                    "pid": 4321,
+                    "rect": { "x": 12, "y": 24, "width": 1440, "height": 900 },
+                    "nodes": [],
+                    "floating_nodes": []
+                }
+            ],
+            "floating_nodes": []
+        });
+
+        let focused = find_focused_sway_node(&tree).expect("应找到 focused 节点");
+        assert_eq!(
+            focused.get("name").and_then(|v| v.as_str()),
+            Some("README.md - nvim")
+        );
+    }
+
+    #[test]
+    fn hyprctl_activewindow应解析为窗口边界() {
+        let value = serde_json::json!({
+            "class": "firefox",
+            "title": "OpenAI - Firefox",
+            "pid": 777,
+            "at": [256, 144],
+            "size": [1280, 720]
+        });
+
+        assert_eq!(
+            parse_hyprland_window_bounds(&value),
+            Some(WindowBounds {
+                x: 256,
+                y: 144,
+                width: 1280,
+                height: 720,
+            })
+        );
+    }
+
+    #[test]
+    fn linux_firefox_family根目录应按浏览器映射() {
+        #[cfg(target_os = "linux")]
+        {
+            let home = dirs::home_dir().expect("应能获取 home 目录");
+            assert_eq!(
+                firefox_family_session_store_base_dir("firefox"),
+                Some(home.join(".mozilla/firefox"))
+            );
+            assert_eq!(
+                firefox_family_session_store_base_dir("zen browser"),
+                Some(home.join(".zen"))
+            );
+        }
+    }
+
+    #[test]
+    fn linux_browser_url入口应优先标题提取作为兜底() {
+        assert_eq!(
+            resolve_browser_url_for_window_linux(
+                "Google Chrome",
+                "https://example.com/tasks?id=1 - Google Chrome"
+            ),
+            Some("https://example.com/tasks?id=1".to_string())
+        );
     }
 }
 
@@ -2636,7 +2798,7 @@ fn get_browser_url(app_name: &str, window_title: &str) -> Option<String> {
     let app_lower = app_name.to_lowercase();
 
     if app_lower.contains("firefox") || app_lower.contains("zen") {
-        if let Some(url) = firefox_family_session_store_url_macos(app_name, window_title) {
+        if let Some(url) = firefox_family_session_store_url(app_name, window_title) {
             return Some(url);
         }
     }
@@ -2682,12 +2844,47 @@ fn get_browser_url(app_name: &str, window_title: &str) -> Option<String> {
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn get_browser_url_linux(app_name: &str, window_title: &str) -> Option<String> {
+    if !is_browser_app(app_name) {
+        return None;
+    }
+
+    let app_lower = app_name.to_lowercase();
+
+    if matches_firefox_family_browser(&app_lower) {
+        if let Some(url) = firefox_family_session_store_url(app_name, window_title) {
+            return Some(url);
+        }
+    }
+
+    extract_url_from_title(window_title)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn matches_firefox_family_browser(app_lower: &str) -> bool {
+    app_lower.contains("firefox")
+        || app_lower.contains("zen")
+        || app_lower.contains("librewolf")
+        || app_lower.contains("waterfox")
+}
+
 #[cfg(target_os = "macos")]
 pub fn resolve_browser_url_for_window(app_name: &str, window_title: &str) -> Option<String> {
     get_browser_url(app_name, window_title)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+pub fn resolve_browser_url_for_window(app_name: &str, window_title: &str) -> Option<String> {
+    resolve_browser_url_for_window_linux(app_name, window_title)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn resolve_browser_url_for_window_linux(app_name: &str, window_title: &str) -> Option<String> {
+    get_browser_url_linux(app_name, window_title)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn resolve_browser_url_for_window(_app_name: &str, _window_title: &str) -> Option<String> {
     None
 }
@@ -2695,6 +2892,119 @@ pub fn resolve_browser_url_for_window(_app_name: &str, _window_title: &str) -> O
 /// 获取当前活动窗口信息 (Linux X11，使用 xdotool + xprop)
 #[cfg(target_os = "linux")]
 pub fn get_active_window() -> Result<ActiveWindow> {
+    match current_linux_desktop_session() {
+        LinuxDesktopSession::X11 => get_active_window_linux_x11(),
+        LinuxDesktopSession::Wayland => {
+            get_active_window_linux_wayland(current_linux_desktop_environment())
+        }
+        LinuxDesktopSession::Unknown => Err(AppError::Unknown(
+            "无法识别当前 Linux 会话类型，活动窗口追踪不可用".to_string(),
+        )),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn get_active_window_linux_wayland(
+    desktop_environment: LinuxDesktopEnvironment,
+) -> Result<ActiveWindow> {
+    let mut errors = Vec::new();
+
+    let providers: &[fn() -> Result<ActiveWindow>] = match desktop_environment {
+        LinuxDesktopEnvironment::Gnome => &[
+            get_active_window_linux_wayland_gnome,
+            get_active_window_linux_wayland_sway,
+            get_active_window_linux_wayland_hyprland,
+            get_active_window_linux_wayland_kde,
+        ],
+        LinuxDesktopEnvironment::Kde => &[
+            get_active_window_linux_wayland_kde,
+            get_active_window_linux_wayland_gnome,
+            get_active_window_linux_wayland_sway,
+            get_active_window_linux_wayland_hyprland,
+        ],
+        LinuxDesktopEnvironment::Sway => &[
+            get_active_window_linux_wayland_sway,
+            get_active_window_linux_wayland_hyprland,
+            get_active_window_linux_wayland_gnome,
+            get_active_window_linux_wayland_kde,
+        ],
+        LinuxDesktopEnvironment::Hyprland => &[
+            get_active_window_linux_wayland_hyprland,
+            get_active_window_linux_wayland_sway,
+            get_active_window_linux_wayland_gnome,
+            get_active_window_linux_wayland_kde,
+        ],
+        LinuxDesktopEnvironment::Unknown => &[
+            get_active_window_linux_wayland_hyprland,
+            get_active_window_linux_wayland_sway,
+            get_active_window_linux_wayland_gnome,
+            get_active_window_linux_wayland_kde,
+        ],
+    };
+
+    for provider in providers {
+        match provider() {
+            Ok(window) => return Ok(window),
+            Err(error) => errors.push(error.to_string()),
+        }
+    }
+
+    Err(AppError::Unknown(format!(
+        "Wayland 活动窗口追踪失败，已尝试 {} provider: {}",
+        desktop_environment.as_str(),
+        errors.join(" | ")
+    )))
+}
+
+#[cfg(target_os = "linux")]
+pub fn current_linux_active_window_provider(
+    session: LinuxDesktopSession,
+    desktop_environment: LinuxDesktopEnvironment,
+) -> Option<&'static str> {
+    let providers: &[(&str, fn() -> bool)] = match session {
+        LinuxDesktopSession::X11 => &[("xdotool", is_x11_active_window_provider_available)],
+        LinuxDesktopSession::Wayland => match desktop_environment {
+            LinuxDesktopEnvironment::Gnome => &[
+                ("focused-window-dbus", is_gnome_wayland_active_window_provider_available),
+                ("swaymsg", is_sway_active_window_provider_available),
+                ("hyprctl", is_hyprland_active_window_provider_available),
+                ("kdotool", is_kde_wayland_active_window_provider_available),
+            ],
+            LinuxDesktopEnvironment::Kde => &[
+                ("kdotool", is_kde_wayland_active_window_provider_available),
+                ("focused-window-dbus", is_gnome_wayland_active_window_provider_available),
+                ("swaymsg", is_sway_active_window_provider_available),
+                ("hyprctl", is_hyprland_active_window_provider_available),
+            ],
+            LinuxDesktopEnvironment::Sway => &[
+                ("swaymsg", is_sway_active_window_provider_available),
+                ("hyprctl", is_hyprland_active_window_provider_available),
+                ("focused-window-dbus", is_gnome_wayland_active_window_provider_available),
+                ("kdotool", is_kde_wayland_active_window_provider_available),
+            ],
+            LinuxDesktopEnvironment::Hyprland => &[
+                ("hyprctl", is_hyprland_active_window_provider_available),
+                ("swaymsg", is_sway_active_window_provider_available),
+                ("focused-window-dbus", is_gnome_wayland_active_window_provider_available),
+                ("kdotool", is_kde_wayland_active_window_provider_available),
+            ],
+            LinuxDesktopEnvironment::Unknown => &[
+                ("hyprctl", is_hyprland_active_window_provider_available),
+                ("swaymsg", is_sway_active_window_provider_available),
+                ("focused-window-dbus", is_gnome_wayland_active_window_provider_available),
+                ("kdotool", is_kde_wayland_active_window_provider_available),
+            ],
+        },
+        LinuxDesktopSession::Unknown => &[],
+    };
+
+    providers
+        .iter()
+        .find_map(|(name, probe)| probe().then_some(*name))
+}
+
+#[cfg(target_os = "linux")]
+fn get_active_window_linux_x11() -> Result<ActiveWindow> {
     // 使用 xdotool 获取当前活动窗口 ID
     let wid_output = run_monitor_command_with_timeout(
         Command::new("xdotool").arg("getactivewindow"),
@@ -2772,6 +3082,14 @@ pub fn get_active_window() -> Result<ActiveWindow> {
     } else {
         None
     };
+    let geometry_output = run_monitor_command_with_timeout(
+        Command::new("xdotool").args(["getwindowgeometry", "--shell", &wid_str]),
+        "xdotool getwindowgeometry --shell",
+    )
+    .ok();
+    let window_bounds = geometry_output
+        .as_ref()
+        .and_then(|output| parse_xdotool_geometry_shell_output(&String::from_utf8_lossy(&output.stdout)));
 
     let display_name = normalize_display_app_name(&app_name);
 
@@ -2780,7 +3098,414 @@ pub fn get_active_window() -> Result<ActiveWindow> {
         window_title,
         browser_url,
         executable_path,
-        window_bounds: None,
+        window_bounds,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn get_active_window_linux_wayland_gnome() -> Result<ActiveWindow> {
+    let output = run_gnome_focused_window_dbus_call()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::Unknown(format!(
+            "GNOME Wayland 活动窗口 provider 调用失败，请确认已安装 Focused Window D-Bus 扩展: {}",
+            stderr.trim()
+        )));
+    }
+
+    parse_gnome_focused_window_dbus_output(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(target_os = "linux")]
+fn get_active_window_linux_wayland_kde() -> Result<ActiveWindow> {
+    let window_id_output = run_monitor_command_with_timeout(
+        Command::new("kdotool").arg("getactivewindow"),
+        "kdotool getactivewindow",
+    )?;
+    let window_id = String::from_utf8_lossy(&window_id_output.stdout)
+        .trim()
+        .to_string();
+    if window_id.is_empty() {
+        return Err(AppError::Unknown("KDE provider 未返回活动窗口 ID".to_string()));
+    }
+
+    let title_output = run_monitor_command_with_timeout(
+        Command::new("kdotool").args(["getwindowname", &window_id]),
+        "kdotool getwindowname",
+    )?;
+    let class_output = run_monitor_command_with_timeout(
+        Command::new("kdotool").args(["getwindowclassname", &window_id]),
+        "kdotool getwindowclassname",
+    )?;
+    let pid_output = run_monitor_command_with_timeout(
+        Command::new("kdotool").args(["getwindowpid", &window_id]),
+        "kdotool getwindowpid",
+    )
+    .ok();
+    let geometry_output = run_monitor_command_with_timeout(
+        Command::new("kdotool").args(["getwindowgeometry", &window_id]),
+        "kdotool getwindowgeometry",
+    )
+    .ok();
+
+    build_linux_wayland_active_window(
+        String::from_utf8_lossy(&title_output.stdout).trim(),
+        String::from_utf8_lossy(&class_output.stdout).trim(),
+        pid_output
+            .as_ref()
+            .and_then(|output| String::from_utf8_lossy(&output.stdout).trim().parse::<u32>().ok()),
+        geometry_output
+            .as_ref()
+            .and_then(|output| parse_kdotool_geometry_output(&String::from_utf8_lossy(&output.stdout))),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn get_active_window_linux_wayland_sway() -> Result<ActiveWindow> {
+    let output = run_monitor_command_with_timeout(
+        Command::new("swaymsg").args(["-t", "get_tree", "-r"]),
+        "swaymsg -t get_tree",
+    )?;
+    let tree: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| AppError::Unknown(format!("解析 sway tree 失败: {e}")))?;
+    let focused = find_focused_sway_node(&tree)
+        .ok_or_else(|| AppError::Unknown("Sway provider 未找到 focused 节点".to_string()))?;
+
+    let title = focused
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let app_name = focused
+        .get("app_id")
+        .and_then(|v| v.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            focused
+                .get("window_properties")
+                .and_then(|v| v.get("class"))
+                .and_then(|v| v.as_str())
+        })
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let pid = focused
+        .get("pid")
+        .and_then(|v| v.as_u64())
+        .and_then(|value| u32::try_from(value).ok());
+    let rect = focused
+        .get("rect")
+        .and_then(parse_sway_rect_to_window_bounds);
+
+    build_linux_wayland_active_window(&title, &app_name, pid, rect)
+}
+
+#[cfg(target_os = "linux")]
+fn get_active_window_linux_wayland_hyprland() -> Result<ActiveWindow> {
+    let output = run_monitor_command_with_timeout(
+        Command::new("hyprctl").args(["activewindow", "-j"]),
+        "hyprctl activewindow -j",
+    )?;
+    let value: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| AppError::Unknown(format!("解析 hyprctl activewindow 失败: {e}")))?;
+
+    let title = value
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let app_name = value
+        .get("class")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let pid = value
+        .get("pid")
+        .and_then(|v| v.as_i64())
+        .filter(|pid| *pid > 0)
+        .and_then(|pid| u32::try_from(pid).ok());
+    let rect = parse_hyprland_window_bounds(&value);
+
+    build_linux_wayland_active_window(&title, &app_name, pid, rect)
+}
+
+#[cfg(target_os = "linux")]
+fn run_gnome_focused_window_dbus_call() -> Result<Output> {
+    run_monitor_command_with_timeout(
+        Command::new("gdbus").args([
+            "call",
+            "--session",
+            "--dest",
+            "org.gnome.Shell",
+            "--object-path",
+            "/org/gnome/shell/extensions/FocusedWindow",
+            "--method",
+            "org.gnome.shell.extensions.FocusedWindow.Get",
+        ]),
+        "gdbus FocusedWindow.Get",
+    )
+}
+
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn build_linux_wayland_active_window(
+    window_title: &str,
+    raw_app_name: &str,
+    pid: Option<u32>,
+    window_bounds: Option<WindowBounds>,
+) -> Result<ActiveWindow> {
+    let trimmed_title = window_title.trim();
+    let trimmed_app_name = raw_app_name.trim();
+
+    if trimmed_title.is_empty() || trimmed_app_name.is_empty() {
+        return Err(AppError::Unknown(
+            "Wayland provider 返回的窗口标题或应用名为空".to_string(),
+        ));
+    }
+
+    let app_name = normalize_display_app_name(trimmed_app_name);
+    let executable_path = pid.and_then(read_executable_path_from_pid);
+    let browser_url = resolve_browser_url_for_window_linux(&app_name, trimmed_title);
+
+    Ok(ActiveWindow {
+        app_name,
+        window_title: trimmed_title.to_string(),
+        browser_url,
+        executable_path,
+        window_bounds,
+    })
+}
+
+#[cfg(target_os = "linux")]
+pub fn is_gnome_wayland_active_window_provider_available() -> bool {
+    run_gnome_focused_window_dbus_call()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout.contains('{') && stdout.contains('}')
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn is_x11_active_window_provider_available() -> bool {
+    run_monitor_command_with_timeout(
+        Command::new("xdotool").arg("getactivewindow"),
+        "xdotool getactivewindow",
+    )
+    .map(|output| output.status.success())
+    .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn is_kde_wayland_active_window_provider_available() -> bool {
+    run_monitor_command_with_timeout(
+        Command::new("kdotool").arg("getactivewindow"),
+        "kdotool getactivewindow",
+    )
+    .map(|output| output.status.success())
+    .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn is_sway_active_window_provider_available() -> bool {
+    run_monitor_command_with_timeout(
+        Command::new("swaymsg").args(["-t", "get_tree", "-r"]),
+        "swaymsg -t get_tree",
+    )
+    .map(|output| output.status.success())
+    .unwrap_or(false)
+}
+
+#[cfg(target_os = "linux")]
+fn is_hyprland_active_window_provider_available() -> bool {
+    run_monitor_command_with_timeout(
+        Command::new("hyprctl").args(["activewindow", "-j"]),
+        "hyprctl activewindow -j",
+    )
+    .map(|output| output.status.success())
+    .unwrap_or(false)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn parse_gnome_focused_window_dbus_output(output: &str) -> Result<ActiveWindow> {
+    let json_start = output
+        .find('{')
+        .ok_or_else(|| AppError::Unknown("GNOME Wayland provider 未返回窗口 JSON".to_string()))?;
+    let json_end = output
+        .rfind('}')
+        .ok_or_else(|| AppError::Unknown("GNOME Wayland provider 返回内容不完整".to_string()))?;
+
+    let payload = &output[json_start..=json_end];
+    let value: Value = serde_json::from_str(payload)
+        .map_err(|e| AppError::Unknown(format!("解析 GNOME Wayland 窗口 JSON 失败: {e}")))?;
+
+    let window_title = value
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .ok_or_else(|| AppError::Unknown("GNOME Wayland provider 未返回窗口标题".to_string()))?
+        .to_string();
+
+    let raw_app_name = value
+        .get("wm_class")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|app| !app.is_empty())
+        .or_else(|| {
+            value
+                .get("wm_class_instance")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|app| !app.is_empty())
+        })
+        .ok_or_else(|| AppError::Unknown("GNOME Wayland provider 未返回应用名".to_string()))?;
+    let window_bounds = parse_window_bounds_from_json(&value);
+    let executable_path = value
+        .get("pid")
+        .and_then(|v| v.as_i64())
+        .filter(|pid| *pid > 0)
+        .and_then(|pid| read_executable_path_from_pid(pid as u32));
+
+    Ok(ActiveWindow {
+        app_name: normalize_display_app_name(raw_app_name),
+        window_title,
+        browser_url: None,
+        executable_path,
+        window_bounds,
+    })
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn parse_window_bounds_from_json(value: &Value) -> Option<WindowBounds> {
+    let x = value.get("x")?.as_i64()?;
+    let y = value.get("y")?.as_i64()?;
+    let width = value.get("width")?.as_u64()?;
+    let height = value.get("height")?.as_u64()?;
+    if width == 0 || height == 0 {
+        return None;
+    }
+
+    Some(WindowBounds {
+        x: i32::try_from(x).ok()?,
+        y: i32::try_from(y).ok()?,
+        width: u32::try_from(width).ok()?,
+        height: u32::try_from(height).ok()?,
+    })
+}
+
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn parse_sway_rect_to_window_bounds(value: &Value) -> Option<WindowBounds> {
+    Some(WindowBounds {
+        x: i32::try_from(value.get("x")?.as_i64()?).ok()?,
+        y: i32::try_from(value.get("y")?.as_i64()?).ok()?,
+        width: u32::try_from(value.get("width")?.as_u64()?).ok()?,
+        height: u32::try_from(value.get("height")?.as_u64()?).ok()?,
+    })
+}
+
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn find_focused_sway_node(value: &Value) -> Option<&Value> {
+    if value.get("focused").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if value.get("pid").is_some() || value.get("app_id").is_some() {
+            return Some(value);
+        }
+    }
+
+    for key in ["nodes", "floating_nodes"] {
+        if let Some(nodes) = value.get(key).and_then(|v| v.as_array()) {
+            for node in nodes {
+                if let Some(found) = find_focused_sway_node(node) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn parse_kdotool_geometry_output(output: &str) -> Option<WindowBounds> {
+    let position_regex =
+        Regex::new(r"Position:\s*(-?\d+),\s*(-?\d+)").expect("kdotool 位置 regex 应可编译");
+    let geometry_regex =
+        Regex::new(r"Geometry:\s*(\d+)x(\d+)").expect("kdotool 尺寸 regex 应可编译");
+
+    let position = position_regex.captures(output)?;
+    let geometry = geometry_regex.captures(output)?;
+
+    Some(WindowBounds {
+        x: position.get(1)?.as_str().parse::<i32>().ok()?,
+        y: position.get(2)?.as_str().parse::<i32>().ok()?,
+        width: geometry.get(1)?.as_str().parse::<u32>().ok()?,
+        height: geometry.get(2)?.as_str().parse::<u32>().ok()?,
+    })
+}
+
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn parse_hyprland_window_bounds(value: &Value) -> Option<WindowBounds> {
+    let at = value.get("at")?.as_array()?;
+    let size = value.get("size")?.as_array()?;
+
+    Some(WindowBounds {
+        x: i32::try_from(at.first()?.as_i64()?).ok()?,
+        y: i32::try_from(at.get(1)?.as_i64()?).ok()?,
+        width: u32::try_from(size.first()?.as_u64()?).ok()?,
+        height: u32::try_from(size.get(1)?.as_u64()?).ok()?,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn read_executable_path_from_pid(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{pid}/exe"))
+        .ok()
+        .map(|path| path.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+fn read_executable_path_from_pid(_pid: u32) -> Option<String> {
+    None
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn parse_xdotool_geometry_shell_output(output: &str) -> Option<WindowBounds> {
+    let mut x = None;
+    let mut y = None;
+    let mut width = None;
+    let mut height = None;
+
+    for line in output.lines() {
+        let (key, value) = line.split_once('=')?;
+        match key.trim() {
+            "X" => x = value.trim().parse::<i32>().ok(),
+            "Y" => y = value.trim().parse::<i32>().ok(),
+            "WIDTH" => width = value.trim().parse::<u32>().ok(),
+            "HEIGHT" => height = value.trim().parse::<u32>().ok(),
+            _ => {}
+        }
+    }
+
+    let width = width?;
+    let height = height?;
+    if width == 0 || height == 0 {
+        return None;
+    }
+
+    Some(WindowBounds {
+        x: x?,
+        y: y?,
+        width,
+        height,
     })
 }
 

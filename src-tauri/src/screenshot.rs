@@ -1,11 +1,18 @@
 use crate::config::{ScreenshotDisplayMode, StorageConfig};
 use crate::error::{AppError, Result};
+#[cfg(target_os = "linux")]
+use crate::linux_session::{
+    current_linux_desktop_environment, current_linux_desktop_session, LinuxDesktopEnvironment,
+    LinuxDesktopSession,
+};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use image::DynamicImage;
 #[cfg(target_os = "macos")]
 use image::RgbaImage;
 use image::{imageops::FilterType, ColorType};
+#[cfg(any(target_os = "linux", test))]
+use regex::Regex;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -142,7 +149,7 @@ impl ScreenshotService {
         self.config = ScreenshotConfig::from(storage_config);
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     pub fn capture_for_window(
         &self,
         active_window: Option<&crate::monitor::ActiveWindow>,
@@ -150,7 +157,7 @@ impl ScreenshotService {
         self.capture_impl(active_window)
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     pub fn capture_for_window(
         &self,
         _active_window: Option<&crate::monitor::ActiveWindow>,
@@ -827,11 +834,12 @@ impl ScreenshotService {
         Ok(DynamicImage::ImageRgba8(canvas))
     }
 
-    /// 执行截屏（Linux X11，使用 scrot 或 import）
+    /// 执行截屏（Linux）
     #[cfg(target_os = "linux")]
-    fn capture_impl(&self) -> Result<ScreenshotResult> {
-        use std::process::Command;
-
+    fn capture_impl(
+        &self,
+        active_window: Option<&crate::monitor::ActiveWindow>,
+    ) -> Result<ScreenshotResult> {
         let now = chrono::Local::now();
         let date_str = now.format("%Y-%m-%d").to_string();
         let time_str = now.format("%H%M%S_%3f").to_string();
@@ -839,8 +847,56 @@ impl ScreenshotService {
         let screenshots_dir = self.data_dir.join("screenshots").join(&date_str);
         std::fs::create_dir_all(&screenshots_dir)?;
 
+        let session = current_linux_desktop_session();
+        let desktop_environment = current_linux_desktop_environment();
+
+        match session {
+            LinuxDesktopSession::Wayland => self.capture_linux_wayland(
+                &screenshots_dir,
+                &time_str,
+                now.timestamp(),
+                active_window,
+                desktop_environment,
+            ),
+            LinuxDesktopSession::X11 | LinuxDesktopSession::Unknown => self.capture_linux_x11(
+                &screenshots_dir,
+                &time_str,
+                now.timestamp(),
+                active_window,
+                desktop_environment,
+            ),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn maybe_crop_linux_capture(
+        &self,
+        temp_png: &Path,
+        active_window: Option<&crate::monitor::ActiveWindow>,
+        session: LinuxDesktopSession,
+        desktop_environment: LinuxDesktopEnvironment,
+    ) {
+        if should_capture_all_displays(&self.config) {
+            return;
+        }
+
+        if let Err(error) =
+            crop_linux_capture_to_rect(temp_png, active_window, session, desktop_environment)
+        {
+            log::warn!("Linux 按窗口边界裁剪截图失败，回退整桌面截图: {error}");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn capture_linux_x11(
+        &self,
+        screenshots_dir: &Path,
+        time_str: &str,
+        timestamp: i64,
+        active_window: Option<&crate::monitor::ActiveWindow>,
+        desktop_environment: LinuxDesktopEnvironment,
+    ) -> Result<ScreenshotResult> {
         let temp_png = screenshots_dir.join(format!("{time_str}_temp.png"));
-        // 尝试使用 scrot（常见 X11 截屏工具）
         let scrot_result = Command::new("scrot")
             .args(["-o", &temp_png.to_string_lossy()])
             .output();
@@ -848,7 +904,6 @@ impl ScreenshotService {
         let captured = match scrot_result {
             Ok(output) if output.status.success() && temp_png.exists() => true,
             _ => {
-                // 降级：使用 ImageMagick import
                 let import_result = Command::new("import")
                     .args(["-window", "root", &temp_png.to_string_lossy().to_string()])
                     .output();
@@ -856,7 +911,6 @@ impl ScreenshotService {
                 match import_result {
                     Ok(output) if output.status.success() && temp_png.exists() => true,
                     _ => {
-                        // 再降级：使用 maim
                         let maim_result = Command::new("maim")
                             .arg(&temp_png.to_string_lossy().to_string())
                             .output();
@@ -876,7 +930,72 @@ impl ScreenshotService {
             ));
         }
 
-        self.persist_existing_png_capture(&temp_png, &screenshots_dir, &time_str, now.timestamp())
+        self.maybe_crop_linux_capture(
+            &temp_png,
+            active_window,
+            LinuxDesktopSession::X11,
+            desktop_environment,
+        );
+
+        self.persist_existing_png_capture(&temp_png, screenshots_dir, time_str, timestamp)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn capture_linux_wayland(
+        &self,
+        screenshots_dir: &Path,
+        time_str: &str,
+        timestamp: i64,
+        active_window: Option<&crate::monitor::ActiveWindow>,
+        desktop_environment: LinuxDesktopEnvironment,
+    ) -> Result<ScreenshotResult> {
+        let temp_png = screenshots_dir.join(format!("{time_str}_temp.png"));
+        let output_path = temp_png.to_string_lossy().to_string();
+
+        let candidates = [
+            ("grim", vec![output_path.clone()]),
+            (
+                "gnome-screenshot",
+                vec!["-f".to_string(), output_path.clone()],
+            ),
+            (
+                "spectacle",
+                vec![
+                    "-b".to_string(),
+                    "-n".to_string(),
+                    "-o".to_string(),
+                    output_path.clone(),
+                ],
+            ),
+        ];
+
+        let mut captured = false;
+
+        for (command_name, args) in candidates {
+            let output = Command::new(command_name).args(&args).output();
+            match output {
+                Ok(result) if result.status.success() && temp_png.exists() => {
+                    captured = true;
+                    break;
+                }
+                Ok(_) | Err(_) => {}
+            }
+        }
+
+        if !captured {
+            return Err(AppError::Screenshot(
+                "Wayland 截图失败：请安装 grim、gnome-screenshot 或 spectacle".to_string(),
+            ));
+        }
+
+        self.maybe_crop_linux_capture(
+            &temp_png,
+            active_window,
+            LinuxDesktopSession::Wayland,
+            desktop_environment,
+        );
+
+        self.persist_existing_png_capture(&temp_png, screenshots_dir, time_str, timestamp)
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
@@ -948,6 +1067,217 @@ fn capture_target_point(
         bounds.x.saturating_add(half_width),
         bounds.y.saturating_add(half_height),
     ))
+}
+
+#[cfg(any(target_os = "linux", test))]
+type LinuxCaptureRect = (i32, i32, u32, u32);
+
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn linux_window_rect(
+    active_window: Option<&crate::monitor::ActiveWindow>,
+) -> Option<LinuxCaptureRect> {
+    let bounds = active_window?.window_bounds?;
+    if bounds.width == 0 || bounds.height == 0 {
+        return None;
+    }
+
+    Some((bounds.x, bounds.y, bounds.width, bounds.height))
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn parse_xrandr_active_monitor_rects(output: &str) -> Vec<LinuxCaptureRect> {
+    let regex =
+        Regex::new(r"(\d+)/\d+x(\d+)/\d+([+-]\d+)([+-]\d+)").expect("xrandr regex 应可编译");
+
+    regex
+        .captures_iter(output)
+        .filter_map(|capture| {
+            let width = capture.get(1)?.as_str().parse::<u32>().ok()?;
+            let height = capture.get(2)?.as_str().parse::<u32>().ok()?;
+            let x = capture.get(3)?.as_str().parse::<i32>().ok()?;
+            let y = capture.get(4)?.as_str().parse::<i32>().ok()?;
+            Some((x, y, width, height))
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn run_xrandr_active_monitors() -> Option<Vec<LinuxCaptureRect>> {
+    let output = Command::new("xrandr")
+        .arg("--listactivemonitors")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let parsed = parse_xrandr_active_monitor_rects(&String::from_utf8_lossy(&output.stdout));
+    if parsed.is_empty() {
+        None
+    } else {
+        Some(parsed)
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn parse_gnome_display_config_positions(output: &str) -> Vec<(i32, i32)> {
+    let regex =
+        Regex::new(r"\((-?\d+), (-?\d+), [0-9.]+, uint32").expect("display config regex 应可编译");
+
+    regex
+        .captures_iter(output)
+        .filter_map(|capture| {
+            Some((
+                capture.get(1)?.as_str().parse::<i32>().ok()?,
+                capture.get(2)?.as_str().parse::<i32>().ok()?,
+            ))
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn run_gnome_display_config_positions() -> Option<Vec<(i32, i32)>> {
+    let output = Command::new("gdbus")
+        .args([
+            "call",
+            "--session",
+            "--dest",
+            "org.gnome.Mutter.DisplayConfig",
+            "--object-path",
+            "/org/gnome/Mutter/DisplayConfig",
+            "--method",
+            "org.gnome.Mutter.DisplayConfig.GetCurrentState",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let positions = parse_gnome_display_config_positions(&String::from_utf8_lossy(&output.stdout));
+    if positions.is_empty() {
+        None
+    } else {
+        Some(positions)
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn rect_contains_point(rect: LinuxCaptureRect, point: (i32, i32)) -> bool {
+    let (x, y, width, height) = rect;
+    let max_x = x.saturating_add(i32::try_from(width).unwrap_or(i32::MAX));
+    let max_y = y.saturating_add(i32::try_from(height).unwrap_or(i32::MAX));
+    point.0 >= x && point.0 < max_x && point.1 >= y && point.1 < max_y
+}
+
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn virtual_origin_from_rects(rects: &[LinuxCaptureRect]) -> Option<(i32, i32)> {
+    let min_x = rects.iter().map(|(x, _, _, _)| *x).min()?;
+    let min_y = rects.iter().map(|(_, y, _, _)| *y).min()?;
+    Some((min_x, min_y))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_virtual_origin(
+    session: LinuxDesktopSession,
+    desktop_environment: LinuxDesktopEnvironment,
+) -> Option<(i32, i32)> {
+    match session {
+        LinuxDesktopSession::X11 => run_xrandr_active_monitors()
+            .as_ref()
+            .and_then(|rects| virtual_origin_from_rects(rects)),
+        LinuxDesktopSession::Wayland if desktop_environment == LinuxDesktopEnvironment::Gnome => {
+            run_gnome_display_config_positions().as_ref().and_then(|positions| {
+                let min_x = positions.iter().map(|(x, _)| *x).min()?;
+                let min_y = positions.iter().map(|(_, y)| *y).min()?;
+                Some((min_x, min_y))
+            })
+        }
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_capture_target_rect(
+    active_window: Option<&crate::monitor::ActiveWindow>,
+    session: LinuxDesktopSession,
+) -> Option<LinuxCaptureRect> {
+    let window_rect = linux_window_rect(active_window)?;
+
+    if session == LinuxDesktopSession::X11 {
+        let center = capture_target_point(active_window)?;
+        if let Some(monitor_rect) = run_xrandr_active_monitors()
+            .and_then(|rects| rects.into_iter().find(|rect| rect_contains_point(*rect, center)))
+        {
+            return Some(monitor_rect);
+        }
+    }
+
+    Some(window_rect)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn normalize_linux_crop_rect(
+    virtual_origin: (i32, i32),
+    rect: LinuxCaptureRect,
+    image_width: u32,
+    image_height: u32,
+) -> Option<(u32, u32, u32, u32)> {
+    let left = rect.0.checked_sub(virtual_origin.0)?;
+    let top = rect.1.checked_sub(virtual_origin.1)?;
+    let right = left.checked_add(i32::try_from(rect.2).ok()?)?;
+    let bottom = top.checked_add(i32::try_from(rect.3).ok()?)?;
+
+    let crop_left = left.max(0).min(i32::try_from(image_width).ok()?);
+    let crop_top = top.max(0).min(i32::try_from(image_height).ok()?);
+    let crop_right = right.max(0).min(i32::try_from(image_width).ok()?);
+    let crop_bottom = bottom.max(0).min(i32::try_from(image_height).ok()?);
+
+    if crop_right <= crop_left || crop_bottom <= crop_top {
+        return None;
+    }
+
+    Some((
+        u32::try_from(crop_left).ok()?,
+        u32::try_from(crop_top).ok()?,
+        u32::try_from(crop_right - crop_left).ok()?,
+        u32::try_from(crop_bottom - crop_top).ok()?,
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn crop_linux_capture_to_rect(
+    temp_png: &Path,
+    active_window: Option<&crate::monitor::ActiveWindow>,
+    session: LinuxDesktopSession,
+    desktop_environment: LinuxDesktopEnvironment,
+) -> Result<()> {
+    let Some(target_rect) = linux_capture_target_rect(active_window, session) else {
+        return Ok(());
+    };
+
+    let image = image::open(temp_png)
+        .map_err(|e| AppError::Screenshot(format!("读取 Linux 截图失败: {e}")))?;
+    let virtual_origin =
+        linux_virtual_origin(session, desktop_environment).unwrap_or((0, 0));
+    let Some((crop_x, crop_y, crop_width, crop_height)) = normalize_linux_crop_rect(
+        virtual_origin,
+        target_rect,
+        image.width(),
+        image.height(),
+    ) else {
+        return Ok(());
+    };
+
+    let cropped = image.crop_imm(crop_x, crop_y, crop_width, crop_height);
+    cropped
+        .save_with_format(temp_png, image::ImageFormat::Png)
+        .map_err(|e| AppError::Screenshot(format!("保存 Linux 裁剪截图失败: {e}")))?;
+    Ok(())
 }
 
 fn should_capture_all_displays(config: &ScreenshotConfig) -> bool {
@@ -1129,7 +1459,10 @@ fn capture_target_hmonitor(
 
 #[cfg(test)]
 mod tests {
-    use super::{capture_target_point, should_capture_all_displays, ScreenshotService};
+    use super::{
+        capture_target_point, normalize_linux_crop_rect, parse_xrandr_active_monitor_rects,
+        should_capture_all_displays, ScreenshotService,
+    };
     use crate::config::{ScreenshotDisplayMode, StorageConfig};
     use crate::monitor::{ActiveWindow, WindowBounds};
     use image::{DynamicImage, Rgba, RgbaImage};
@@ -1206,6 +1539,28 @@ mod tests {
         assert_eq!(
             super::macos_capture_rect(-1512, -982, 1512, 982),
             "-1512,-982,1512,982"
+        );
+    }
+
+    #[test]
+    fn xrandr活动显示器输出应解析为矩形列表() {
+        let output = r#"
+Monitors: 2
+ 0: +*eDP-1 1920/340x1080/190+0+0  eDP-1
+ 1: +HDMI-1 2560/600x1440/340+1920+0  HDMI-1
+"#;
+
+        assert_eq!(
+            parse_xrandr_active_monitor_rects(output),
+            vec![(0, 0, 1920, 1080), (1920, 0, 2560, 1440)]
+        );
+    }
+
+    #[test]
+    fn linux裁剪矩形应按虚拟桌面原点归一化() {
+        assert_eq!(
+            normalize_linux_crop_rect((-1920, 0), (-1600, 120, 1280, 800), 4480, 1440),
+            Some((320, 120, 1280, 800))
         );
     }
 

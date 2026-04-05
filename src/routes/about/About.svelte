@@ -11,6 +11,7 @@
 
   let appVersion = '';
   let dataDir = '';
+  let linuxSessionInfo = null;
   
   let isCheckingUpdate = false;
   let isSponsorshipOpen = false;
@@ -22,6 +23,7 @@
     try {
       appVersion = await getVersion();
       dataDir = await invoke('get_data_dir');
+      linuxSessionInfo = await invoke('get_linux_session_support');
     } catch (e) {
       console.error('初始化失败:', e);
       appVersion = '1.0.0';
@@ -156,6 +158,63 @@
           {dataDir || t('about.loadingDataDir')}
         </p>
       </div>
+
+      {#if linuxSessionInfo?.platform === 'linux'}
+        <div class="mx-auto mt-4 w-full max-w-2xl rounded-2xl border border-amber-200/80 bg-amber-50/80 px-5 py-4 text-left dark:border-amber-900/60 dark:bg-amber-950/20">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-semibold text-amber-900 dark:text-amber-100">{t('about.linuxSessionTitle')}</h3>
+              <p class="mt-1 text-sm leading-6 text-amber-800/90 dark:text-amber-200/90">
+                {#if linuxSessionInfo.sessionType === 'x11'}
+                  {t('about.linuxSessionX11Ready')}
+                {:else if linuxSessionInfo.sessionType === 'wayland' && linuxSessionInfo.desktopEnvironment === 'gnome' && linuxSessionInfo.activeWindowSupported}
+                  {t('about.linuxSessionGnomeWaylandReady')}
+                {:else if linuxSessionInfo.sessionType === 'wayland' && linuxSessionInfo.desktopEnvironment === 'gnome'}
+                  {t('about.linuxSessionGnomeWaylandMissingProvider')}
+                {:else}
+                  {t('about.linuxSessionWaylandWarning')}
+                {/if}
+              </p>
+            </div>
+            <span class="inline-flex items-center rounded-full border border-amber-300/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700 dark:border-amber-800/80 dark:bg-amber-950/50 dark:text-amber-200">
+              {linuxSessionInfo.sessionType} / {linuxSessionInfo.desktopEnvironment}
+            </span>
+          </div>
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <span class="inline-flex items-center rounded-full border border-amber-200 bg-white/75 px-3 py-1 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
+              {linuxSessionInfo.screenshotSupported ? t('about.linuxSessionScreenshotReady') : t('about.linuxSessionScreenshotPending')}
+            </span>
+            <span class="inline-flex items-center rounded-full border border-amber-200 bg-white/75 px-3 py-1 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
+              {linuxSessionInfo.activeWindowSupported ? t('about.linuxSessionWindowReady') : t('about.linuxSessionWindowPending')}
+            </span>
+          </div>
+
+          <div class="mt-4 grid gap-3 md:grid-cols-2">
+            <div class="rounded-2xl border border-amber-200/80 bg-white/70 px-4 py-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+              <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700 dark:text-amber-300">
+                {t('about.linuxSessionProviderLabel')}
+              </p>
+              <p class="mt-2 text-sm font-medium text-amber-900 dark:text-amber-100">
+                {linuxSessionInfo.activeWindowProvider}
+              </p>
+            </div>
+
+            <div class="rounded-2xl border border-amber-200/80 bg-white/70 px-4 py-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+              <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700 dark:text-amber-300">
+                {t('about.linuxBrowserUrlCapabilityTitle')}
+              </p>
+              <p class="mt-2 text-sm font-medium text-amber-900 dark:text-amber-100">
+                {#if linuxSessionInfo.browserUrlSupportLevel === 'mixed'}
+                  {t('about.linuxBrowserUrlSupportMixed')}
+                {:else}
+                  {t('about.linuxBrowserUrlSupportLimited')}
+                {/if}
+              </p>
+            </div>
+          </div>
+        </div>
+      {/if}
 
       <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
         <span class="page-inline-chip-brand">Tauri 2</span>

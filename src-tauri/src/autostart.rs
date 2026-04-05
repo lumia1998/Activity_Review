@@ -10,6 +10,7 @@ use tauri_plugin_autostart::ManagerExt;
 
 use crate::error::{AppError, Result};
 
+#[cfg(windows)]
 const AUTOSTART_LAUNCH_ARG: &str = "--autostart";
 #[cfg(windows)]
 const AUTOSTART_NOT_INITIALIZED_ERROR: &str = "开机自启动服务未初始化，请重启应用后重试";
