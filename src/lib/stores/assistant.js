@@ -2,7 +2,7 @@ import { writable } from 'svelte/store';
 
 export const BASIC_ASSISTANT_MODEL_ID = '__basic__';
 
-const STORAGE_KEY = 'work-review-assistant-state';
+const STORAGE_KEY = 'activity-review-assistant-state';
 const DEFAULT_STATE = {
   messages: [],
   selectedModelId: BASIC_ASSISTANT_MODEL_ID,

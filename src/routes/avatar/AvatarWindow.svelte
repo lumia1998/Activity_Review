@@ -1,9 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { listen } from '@tauri-apps/api/event';
-  import { invoke } from '@tauri-apps/api/core';
-  import { getCurrentWindow } from '@tauri-apps/api/window';
-  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+  import { invoke, listen, getCurrentWindow, getCurrentWebviewWindow } from '$lib/runtime.js';
   import AvatarCanvas from '../../lib/components/Avatar/AvatarCanvas.svelte';
   import AvatarPopover from '../../lib/components/Avatar/AvatarPopover.svelte';
   import { applyLocaleToDocument, initializeLocale, locale } from '$lib/i18n/index.js';
@@ -16,15 +13,17 @@
   const appWindow = getCurrentWebviewWindow();
   const nativeWindow = getCurrentWindow();
 
-  let state = {
+  const fallbackAvatarState = {
     mode: 'idle',
-    appName: 'Work Review',
+    appName: 'Activity Review',
     contextLabel: '待命中',
     hint: '准备陪你开始工作',
     isIdle: true,
     isGeneratingReport: false,
     avatarOpacity: 0.82,
   };
+
+  let state = { ...fallbackAvatarState };
   let bubbleSource = null;
   let bubble = null;
   let bubbleTimer = null;
@@ -35,6 +34,7 @@
   let motionTimer = null;
   let positionSaveTimer = null;
   let lastSavedPositionKey = null;
+  let avatarHostSupported = true;
   let unsubscribeLocale = () => {};
   let unlistenLocaleChanged = () => {};
   let handleVisibilityChange = null;
@@ -69,6 +69,10 @@
       en: 'This report run failed. Please try again later.',
     },
   };
+
+  function isUnsupportedAvatarFeature(error) {
+    return String(error || '').includes('尚未在 Python 重构版中实现');
+  }
 
   function localizeBubblePayload(payload, nextLocale = currentLocale) {
     if (!payload) {
@@ -119,9 +123,18 @@
   }
 
   async function openMainWindow() {
+    if (!avatarHostSupported) {
+      return;
+    }
+
     try {
       await invoke('show_main_window', { sourceWindowLabel: appWindow.label });
     } catch (e) {
+      if (isUnsupportedAvatarFeature(e)) {
+        avatarHostSupported = false;
+        state = { ...fallbackAvatarState };
+        return;
+      }
       console.error('显示主窗口失败:', e);
     }
   }
@@ -143,6 +156,10 @@
   }
 
   function scheduleAvatarPositionSave(position) {
+    if (!avatarHostSupported) {
+      return;
+    }
+
     const nextX = Math.round(position.x);
     const nextY = Math.round(position.y);
     const nextKey = `${nextX},${nextY}`;
@@ -157,6 +174,10 @@
         await invoke('save_avatar_position', { x: nextX, y: nextY });
         lastSavedPositionKey = nextKey;
       } catch (e) {
+        if (isUnsupportedAvatarFeature(e)) {
+          avatarHostSupported = false;
+          return;
+        }
         console.error('保存桌宠位置失败:', e);
       }
     }, 240);
@@ -197,7 +218,6 @@
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // 桌宠窗口不需要浏览器原生右键菜单和打印能力，避免误触后弹出系统界面。
     handleContextMenu = (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -218,7 +238,12 @@
       try {
         state = await invoke('get_avatar_state');
       } catch (e) {
-        console.error('获取桌宠状态失败:', e);
+        if (isUnsupportedAvatarFeature(e)) {
+          avatarHostSupported = false;
+          state = { ...fallbackAvatarState };
+        } else {
+          console.error('获取桌宠状态失败:', e);
+        }
       }
 
       unlistenState = await appWindow.listen('avatar-state-changed', (event) => {

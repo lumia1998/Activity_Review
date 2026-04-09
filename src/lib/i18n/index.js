@@ -1,6 +1,6 @@
 import { get, writable } from 'svelte/store';
 
-const LOCALE_STORAGE_KEY = 'work-review.locale';
+const LOCALE_STORAGE_KEY = 'activity-review.locale';
 const DEFAULT_LOCALE = 'zh-CN';
 
 export const SUPPORTED_LOCALES = ['zh-CN', 'en', 'zh-TW'];
@@ -387,11 +387,11 @@ const MESSAGES = {
       to: '到',
       workTimeHint: '此时间段内的活动将被计入工作时长统计',
       autoStart: '开机自启动',
-      autoStartDescription: '系统启动时自动运行 Work Review',
+      autoStartDescription: '系统启动时自动运行 Activity Review',
       autoStartLaunchMode: '启动后显示',
       autoStartLaunchShow: '启动时显示主界面',
-      autoStartLaunchSilent: '启动时静默驻留',
-      hideDockIcon: '隐藏 Dock 图标',
+      autoStartUnsupported: '当前宿主暂不支持系统自启动控制',
+      hideDockIconUnsupported: '当前宿主暂不支持 Dock / 托盘显隐控制',
       hideDockIconDescription: '隐藏后仅通过系统托盘访问应用',
       lightweightMode: '轻量模式',
       lightweightModeDescription:
@@ -611,7 +611,7 @@ const MESSAGES = {
       restoreDefaultDir: '恢复默认位置',
       dataDirHint: '建议选择专用空目录。迁移时会复制当前配置、数据库、截图、OCR 日志与背景图。',
       oldDirPending: '旧目录待清理',
-      oldDirHint: '已切换到新目录。若确认迁移无误，可清理旧目录中的 Work Review 数据；其他非应用文件会保留。',
+      oldDirHint: '已切换到新目录。若确认迁移无误，可清理旧目录中的 Activity Review 数据；其他非应用文件会保留。',
       cleaning: '清理中...',
       cleanOldDir: '清理旧目录',
       later: '稍后处理',
@@ -633,13 +633,13 @@ const MESSAGES = {
       alreadyCurrentDir: '已是当前数据目录',
       migrateConfirmTitle: '确认迁移数据目录',
       migrateConfirmMessage:
-        '将把当前数据迁移到新目录：\n{dir}\n\n若目标目录已有 Work Review 历史数据，会被当前数据覆盖。此过程可能持续几秒，是否继续？',
+        '将把当前数据迁移到新目录：\n{dir}\n\n若目标目录已有 Activity Review 历史数据，会被当前数据覆盖。此过程可能持续几秒，是否继续？',
       migrated: '数据目录已更新',
       migrateFailed: '迁移失败: {error}',
       openDirFailed: '打开目录失败: {error}',
       cleanupOldConfirmTitle: '确认清理旧目录',
       cleanupOldConfirmMessage:
-        '将清理旧目录中的 Work Review 数据：\n{dir}\n\n只会删除应用管理的配置、数据库、截图、OCR 日志等文件；若目录内还有其他文件，会保留它们。是否继续？',
+        '将清理旧目录中的 Activity Review 数据：\n{dir}\n\n只会删除应用管理的配置、数据库、截图、OCR 日志等文件；若目录内还有其他文件，会保留它们。是否继续？',
       oldDirCleaned: '旧目录已清理',
       cleanupOldFailed: '清理旧目录失败: {error}',
     },
@@ -903,11 +903,11 @@ const MESSAGES = {
       to: 'To',
       workTimeHint: 'Activity during this window is counted as work duration',
       autoStart: 'Launch at startup',
-      autoStartDescription: 'Start Work Review automatically with the system',
+      autoStartDescription: 'Start Activity Review automatically with the system',
       autoStartLaunchMode: 'Startup display',
       autoStartLaunchShow: 'Show main window on startup',
-      autoStartLaunchSilent: 'Start silently in background',
-      hideDockIcon: 'Hide Dock icon',
+      autoStartUnsupported: 'The current desktop host does not support system autostart control',
+      hideDockIconUnsupported: 'The current desktop host does not support Dock / tray visibility control',
       hideDockIconDescription: 'Access the app from the tray/menu bar only',
       lightweightMode: 'Lightweight mode',
       lightweightModeDescription:
@@ -1134,7 +1134,7 @@ const MESSAGES = {
       restoreDefaultDir: 'Restore Default',
       dataDirHint: 'A dedicated empty directory is recommended. Migration copies config, database, screenshots, OCR logs, and background images.',
       oldDirPending: 'Previous Directory Pending Cleanup',
-      oldDirHint: 'You have already switched to the new directory. Once everything looks correct, you can clean old Work Review data there while keeping unrelated files.',
+      oldDirHint: 'You have already switched to the new directory. Once everything looks correct, you can clean old Activity Review data there while keeping unrelated files.',
       cleaning: 'Cleaning...',
       cleanOldDir: 'Clean Old Directory',
       later: 'Later',
@@ -1156,13 +1156,13 @@ const MESSAGES = {
       alreadyCurrentDir: 'Already using this data directory',
       migrateConfirmTitle: 'Confirm Data Directory Migration',
       migrateConfirmMessage:
-        'Current data will be migrated to:\n{dir}\n\nIf the target already contains Work Review data, it will be replaced. This may take a few seconds. Continue?',
+        'Current data will be migrated to:\n{dir}\n\nIf the target already contains Activity Review data, it will be replaced. This may take a few seconds. Continue?',
       migrated: 'Data directory updated',
       migrateFailed: 'Migration failed: {error}',
       openDirFailed: 'Failed to open directory: {error}',
       cleanupOldConfirmTitle: 'Confirm Old Directory Cleanup',
       cleanupOldConfirmMessage:
-        'Work Review data will be cleaned from the old directory:\n{dir}\n\nOnly app-managed files such as config, database, screenshots, and OCR logs will be removed. Any unrelated files will be preserved. Continue?',
+        'Activity Review data will be cleaned from the old directory:\n{dir}\n\nOnly app-managed files such as config, database, screenshots, and OCR logs will be removed. Any unrelated files will be preserved. Continue?',
       oldDirCleaned: 'Old directory cleaned',
       cleanupOldFailed: 'Failed to clean old directory: {error}',
     },
@@ -1426,11 +1426,11 @@ const MESSAGES = {
       to: '到',
       workTimeHint: '此時間段內的活動將被計入工作時長統計',
       autoStart: '開機自啟',
-      autoStartDescription: '系統啟動時自動執行 Work Review',
+      autoStartDescription: '系統啟動時自動執行 Activity Review',
       autoStartLaunchMode: '啟動後顯示',
       autoStartLaunchShow: '啟動時顯示主介面',
-      autoStartLaunchSilent: '啟動時靜默駐留',
-      hideDockIcon: '隱藏 Dock 圖示',
+      autoStartUnsupported: '目前宿主暫不支援系統自啟控制',
+      hideDockIconUnsupported: '目前宿主暫不支援 Dock / 托盤顯隱控制',
       hideDockIconDescription: '隱藏後僅透過系統托盤存取應用',
       lightweightMode: '輕量模式',
       lightweightModeDescription:
@@ -1655,7 +1655,7 @@ const MESSAGES = {
       restoreDefaultDir: '恢復預設位置',
       dataDirHint: '建議選擇專用空目錄。遷移時會複製目前配置、資料庫、截圖、OCR 日誌與背景圖。',
       oldDirPending: '舊目錄待清理',
-      oldDirHint: '已切換到新目錄。若確認遷移無誤，可清理舊目錄中的 Work Review 資料；其他非應用檔案會保留。',
+      oldDirHint: '已切換到新目錄。若確認遷移無誤，可清理舊目錄中的 Activity Review 資料；其他非應用檔案會保留。',
       cleaning: '清理中...',
       cleanOldDir: '清理舊目錄',
       later: '稍後處理',
@@ -1677,13 +1677,13 @@ const MESSAGES = {
       alreadyCurrentDir: '已是目前資料目錄',
       migrateConfirmTitle: '確認遷移資料目錄',
       migrateConfirmMessage:
-        '將把目前資料遷移到新目錄：\n{dir}\n\n若目標目錄已有 Work Review 歷史資料，會被目前資料覆蓋。此過程可能持續幾秒，是否繼續？',
+        '將把目前資料遷移到新目錄：\n{dir}\n\n若目標目錄已有 Activity Review 歷史資料，會被目前資料覆蓋。此過程可能持續幾秒，是否繼續？',
       migrated: '資料目錄已更新',
       migrateFailed: '遷移失敗: {error}',
       openDirFailed: '打開目錄失敗: {error}',
       cleanupOldConfirmTitle: '確認清理舊目錄',
       cleanupOldConfirmMessage:
-        '將清理舊目錄中的 Work Review 資料：\n{dir}\n\n只會刪除應用管理的配置、資料庫、截圖、OCR 日誌等檔案；若目錄內還有其他檔案，會保留它們。是否繼續？',
+        '將清理舊目錄中的 Activity Review 資料：\n{dir}\n\n只會刪除應用管理的配置、資料庫、截圖、OCR 日誌等檔案；若目錄內還有其他檔案，會保留它們。是否繼續？',
       oldDirCleaned: '舊目錄已清理',
       cleanupOldFailed: '清理舊目錄失敗: {error}',
     },

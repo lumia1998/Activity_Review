@@ -1,8 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import { open as openDialog } from '@tauri-apps/plugin-dialog';
-  import { open } from '@tauri-apps/plugin-shell';
+  import { invoke, openDialog, open } from '$lib/runtime.js';
   import { marked } from 'marked';
   import { showToast } from '../../lib/stores/toast.js';
   import { cache } from '../../lib/stores/cache.js';
@@ -225,6 +223,7 @@
         date: report.date || selectedDate,
         content: report.content,
         exportDir,
+        locale: currentLocale,
       });
       showToast(t('report.exportSuccess', { path: exportPath }), 'success');
     } catch (e) {

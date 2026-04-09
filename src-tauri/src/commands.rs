@@ -32,13 +32,13 @@ use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
 
 const GITHUB_LATEST_RELEASE_API: &str =
-    "https://api.github.com/repos/wm94i/Work_Review/releases/latest";
-const GITHUB_LATEST_RELEASE_PAGE: &str = "https://github.com/wm94i/Work_Review/releases/latest";
+    "https://api.github.com/repos/lumia1998/Acticity_Review/releases/latest";
+const GITHUB_LATEST_RELEASE_PAGE: &str = "https://github.com/lumia1998/Acticity_Review/releases/latest";
 const UPDATE_STATUS_EVENT: &str = "update-status";
 const UPDATER_JSON_ENDPOINTS: &[&str] = &[
-    "https://github.com/wm94i/Work_Review/releases/latest/download/updater.json",
-    "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/latest/download/updater-ghproxy.json",
-    "https://ghp.ci/https://github.com/wm94i/Work_Review/releases/latest/download/updater-ghp.json",
+    "https://github.com/lumia1998/Acticity_Review/releases/latest/download/updater.json",
+    "https://ghproxy.cn/https://github.com/lumia1998/Acticity_Review/releases/latest/download/updater-ghproxy.json",
+    "https://ghp.ci/https://github.com/lumia1998/Acticity_Review/releases/latest/download/updater-ghp.json",
 ];
 const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS: u64 = 24;
 const UPDATE_REQUEST_TIMEOUT_SECS: u64 = 35;
@@ -692,13 +692,13 @@ fn assistant_empty_question_message(locale: AppLocale) -> &'static str {
 fn build_assistant_system_prompt(locale: AppLocale) -> &'static str {
     match locale {
         AppLocale::ZhCn => {
-            "你是 Work Review 的工作助手。你只能基于给定记录回答。请使用简体中文回答，直接回应用户问题，先给结论再给依据。不要提及内部分析步骤，不要编造不存在的事实。"
+            "你是 Activity Review 的工作助手。你只能基于给定记录回答。请使用简体中文回答，直接回应用户问题，先给结论再给依据。不要提及内部分析步骤，不要编造不存在的事实。"
         }
         AppLocale::ZhTw => {
-            "你是 Work Review 的工作助手。你只能基於給定記錄回答。請使用繁體中文回答，直接回應使用者問題，先給結論再給依據。不要提及內部分析步驟，也不要編造不存在的事實。"
+            "你是 Activity Review 的工作助手。你只能基於給定記錄回答。請使用繁體中文回答，直接回應使用者問題，先給結論再給依據。不要提及內部分析步驟，也不要編造不存在的事實。"
         }
         AppLocale::En => {
-            "You are the Work Review assistant. Answer only from the provided records. Reply in English, lead with the conclusion, then support it with evidence. Do not mention internal analysis steps and do not invent facts."
+            "You are the Activity Review assistant. Answer only from the provided records. Reply in English, lead with the conclusion, then support it with evidence. Do not mention internal analysis steps and do not invent facts."
         }
     }
 }
@@ -4025,7 +4025,7 @@ fn ensure_target_dir_ready(target_dir: &Path) -> Result<bool, AppError> {
 
         if !is_managed_dir_entry(&name) {
             return Err(AppError::Config(format!(
-                "目标目录包含非 Work Review 数据（{}），为避免误覆盖，请选择空目录或旧的数据目录",
+                "目标目录包含非 Activity Review 数据（{}），为避免误覆盖，请选择空目录或旧的数据目录",
                 name
             )));
         }
@@ -4199,7 +4199,7 @@ pub async fn change_data_dir(
         "message": format!(
             "数据目录已更新，已迁移 {} 个文件{}",
             copied_files,
-            if replaced_existing_data { "，并覆盖旧目录中的 Work Review 数据" } else { "" }
+            if replaced_existing_data { "，并覆盖旧目录中的 Activity Review 数据" } else { "" }
         ),
     }))
 }
@@ -4250,16 +4250,16 @@ pub async fn cleanup_old_data_dir(
     let (removed_entries, preserved_entries) = remove_app_managed_entries(&cleanup_dir)?;
     let message = if preserved_entries.is_empty() {
         if cleanup_dir.exists() {
-            format!("已清理旧目录中的 {} 项 Work Review 数据", removed_entries)
+            format!("已清理旧目录中的 {} 项 Activity Review 数据", removed_entries)
         } else {
             format!(
-                "已清理旧目录中的 {} 项 Work Review 数据，并移除空目录",
+                "已清理旧目录中的 {} 项 Activity Review 数据，并移除空目录",
                 removed_entries
             )
         }
     } else {
         format!(
-            "已清理旧目录中的 {} 项 Work Review 数据，保留其他文件：{}",
+            "已清理旧目录中的 {} 项 Activity Review 数据，保留其他文件：{}",
             removed_entries,
             preserved_entries.join("、")
         )
@@ -5351,7 +5351,7 @@ fn refresh_dock_icon(activate: bool) {
             resource
         } else {
             NSString::alloc(nil)
-                .init_str("/Applications/Work Review.app/Contents/Resources/icon.icns")
+                .init_str("/Applications/Activity Review.app/Contents/Resources/icon.icns")
         };
 
         let image: *mut Object = NSImage::alloc(nil).initByReferencingFile_(path_to_use);
@@ -6674,16 +6674,16 @@ mod tests {
     #[test]
     fn 更新清单候选应优先显式版本地址再回退latest地址() {
         let candidates = build_updater_manifest_candidates(
-            "https://github.com/wm94i/Work_Review/releases/latest/download/updater.json",
+            "https://github.com/lumia1998/Acticity_Review/releases/latest/download/updater.json",
             Some("1.0.24"),
         );
 
         assert_eq!(
             candidates,
             vec![
-                "https://github.com/wm94i/Work_Review/releases/download/v1.0.24/updater.json"
+                "https://github.com/lumia1998/Acticity_Review/releases/download/v1.0.24/updater.json"
                     .to_string(),
-                "https://github.com/wm94i/Work_Review/releases/latest/download/updater.json"
+                "https://github.com/lumia1998/Acticity_Review/releases/latest/download/updater.json"
                     .to_string(),
             ]
         );
@@ -6858,16 +6858,16 @@ mod tests {
     #[test]
     fn 更新清单候选应保留代理前缀并规范化版本号() {
         let candidates = build_updater_manifest_candidates(
-            "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/latest/download/updater-ghproxy.json",
+            "https://ghproxy.cn/https://github.com/lumia1998/Acticity_Review/releases/latest/download/updater-ghproxy.json",
             Some("v1.0.24"),
         );
 
         assert_eq!(
             candidates,
             vec![
-                "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/download/v1.0.24/updater-ghproxy.json"
+                "https://ghproxy.cn/https://github.com/lumia1998/Acticity_Review/releases/download/v1.0.24/updater-ghproxy.json"
                     .to_string(),
-                "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/latest/download/updater-ghproxy.json"
+                "https://ghproxy.cn/https://github.com/lumia1998/Acticity_Review/releases/latest/download/updater-ghproxy.json"
                     .to_string(),
             ]
         );
@@ -6877,7 +6877,7 @@ mod tests {
     fn 更新源应优先官方_github_并放宽超时() {
         assert_eq!(
             UPDATER_JSON_ENDPOINTS.first().copied(),
-            Some("https://github.com/wm94i/Work_Review/releases/latest/download/updater.json")
+            Some("https://github.com/lumia1998/Acticity_Review/releases/latest/download/updater.json")
         );
         assert!(UPDATE_REQUEST_TIMEOUT_SECS >= 30);
         assert!(UPDATE_CONNECT_TIMEOUT_SECS >= 10);

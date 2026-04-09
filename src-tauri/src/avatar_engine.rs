@@ -96,7 +96,7 @@ impl AvatarBubblePayload {
 pub fn default_avatar_state() -> AvatarStatePayload {
     AvatarStatePayload {
         mode: "idle".to_string(),
-        app_name: "Work Review".to_string(),
+        app_name: "Activity Review".to_string(),
         context_label: "待命中".to_string(),
         hint: "准备陪你开始工作".to_string(),
         is_idle: true,
@@ -395,7 +395,7 @@ fn ensure_avatar_window(app: &AppHandle, scale: f64) -> tauri::Result<()> {
     let (window_width, window_height) = avatar_window_size(scale);
 
     let window = WebviewWindowBuilder::new(app, AVATAR_WINDOW_LABEL, WebviewUrl::default())
-        .title("Work Review Avatar")
+        .title("Activity Review Avatar")
         .inner_size(window_width, window_height)
         .min_inner_size(window_width, window_height)
         .max_inner_size(window_width, window_height)
@@ -673,8 +673,8 @@ mod tests {
     fn github_拉取请求页面应识别为编码中() {
         let state = derive_avatar_state(
             "Google Chrome",
-            "Fix updater retry · Pull Request #12 · wm94i/Work_Review",
-            Some("https://github.com/wm94i/Work_Review/pull/12"),
+            "Fix updater retry · Pull Request #12 · lumia1998/Acticity_Review",
+            Some("https://github.com/lumia1998/Acticity_Review/pull/12"),
             false,
             false,
         );
@@ -688,7 +688,7 @@ mod tests {
         let state = derive_avatar_state(
             "Google Chrome",
             "Sprint 15 Board - Linear",
-            Some("https://linear.app/work-review/board"),
+            Some("https://linear.app/activity-review/board"),
             false,
             false,
         );
@@ -752,7 +752,7 @@ mod tests {
         let state = default_avatar_state();
 
         assert_eq!(state.mode, "idle");
-        assert_eq!(state.app_name, "Work Review");
+        assert_eq!(state.app_name, "Activity Review");
         assert!(!state.is_generating_report);
     }
 

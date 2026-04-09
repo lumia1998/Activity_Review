@@ -1,6 +1,6 @@
 # Windows 平台说明
 
-本文档说明 Work Review 在 Windows 下的 OCR、URL 获取和打包情况。
+本文档说明 Activity Review 在 Windows 下的 OCR、URL 获取和打包情况。
 
 ## 当前支持
 
@@ -44,7 +44,7 @@ pip install paddlepaddle paddleocr -i https://mirror.baidu.com/pypi/simple
 说明：
 
 - 这不是当前 Windows 默认必需依赖
-- 正常使用 Work Review 不需要先安装它
+- 正常使用 Activity Review 不需要先安装它
 
 ## 构建 Windows 安装包
 

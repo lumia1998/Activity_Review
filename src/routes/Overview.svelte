@@ -1,7 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
+  import { invoke, listen } from '$lib/runtime.js';
   import StatsCard from '../lib/components/StatsCard.svelte';
   import AppUsageChart from '../lib/components/AppUsageChart.svelte';
   import ActivityHourlyChart from '../lib/components/ActivityHourlyChart.svelte';
@@ -538,7 +537,7 @@
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
-    // 监听 Tauri 截屏事件（后备）
+    // 监听桌面宿主转发的截屏事件（后备）
     unlisten = await listen('screenshot-taken', () => {
       if (!document.hidden && shouldAutoRefreshOverview()) {
         loadStats(true);

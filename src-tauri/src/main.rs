@@ -489,14 +489,14 @@ fn advance_break_reminder(
 
 pub(crate) fn default_data_dir() -> PathBuf {
     dirs::data_dir()
-        .map(|d| d.join("work-review"))
+        .map(|d| d.join("activity-review"))
         .unwrap_or_else(|| PathBuf::from("./data"))
 }
 
 fn data_dir_preference_path() -> PathBuf {
     dirs::config_dir()
-        .map(|d| d.join("work-review").join("data-location.json"))
-        .unwrap_or_else(|| PathBuf::from("./work-review-data-location.json"))
+        .map(|d| d.join("activity-review").join("data-location.json"))
+        .unwrap_or_else(|| PathBuf::from("./activity-review-data-location.json"))
 }
 
 fn load_data_dir_preference() -> Option<PathBuf> {
@@ -2498,7 +2498,7 @@ async fn main() {
         if !screenshot::has_screen_capture_permission() {
             log::warn!("⚠️  屏幕录制权限未授权，正在请求...");
             log::warn!(
-                "   请在「系统设置 → 隐私与安全性 → 屏幕录制」中授权 Work Review，然后重启应用"
+                "   请在「系统设置 → 隐私与安全性 → 屏幕录制」中授权 Activity Review，然后重启应用"
             );
             screenshot::request_screen_capture_permission();
         } else {
@@ -2508,7 +2508,7 @@ async fn main() {
         // 2. 辅助功能权限（读取窗口标题、浏览器 URL 必需）
         if !screenshot::has_accessibility_permission(false) {
             log::warn!("⚠️  辅助功能权限未授权，正在请求...");
-            log::warn!("   请在「系统设置 → 隐私与安全性 → 辅助功能」中授权 Work Review");
+            log::warn!("   请在「系统设置 → 隐私与安全性 → 辅助功能」中授权 Activity Review");
             // prompt=true 会弹出系统引导对话框
             screenshot::has_accessibility_permission(true);
         } else {

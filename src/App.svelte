@@ -12,9 +12,7 @@
   import Settings from './routes/settings/Settings.svelte';
   import About from './routes/about/About.svelte';
   import AvatarWindow from './routes/avatar/AvatarWindow.svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
-  import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+  import { invoke, listen, getCurrentWebviewWindow } from '$lib/runtime.js';
   import { cache, getLocalDate } from './lib/stores/cache.js';
   import { applyLocaleToDocument, initializeLocale, locale } from '$lib/i18n/index.js';
   import { preloadAppIcons } from './lib/stores/iconCache.js';
@@ -24,7 +22,7 @@
   const currentWindowLabel = appWindow.label;
   const isAvatarWindow = currentWindowLabel === 'avatar';
 
-  // 視窗拖拽（Linux WebKitGTK 不支援 -webkit-app-region: drag，改用 Tauri API）
+  // 視窗拖拽（Linux WebKitGTK 不支援 -webkit-app-region: drag，改用桌面橋接 API）
   async function startDrag(e) {
     // 只處理左鍵，且排除按鈕點擊
     if (e.button !== 0 || e.target.closest('button')) return;
@@ -58,7 +56,8 @@
   async function preloadApp() {
     console.log('开始预加载数据...');
     const today = getLocalDate();
-    
+    const defaultReportCacheKey = `${today}:${currentLocale || 'zh-CN'}`;
+
     // 并行预加载：概览、时间线(今天)、日报(今天)
     Promise.all([
       // 1. 概览
@@ -88,8 +87,8 @@
         invoke('get_hourly_summaries', { date: today })
       ]).then(([activities, summaries]) => cache.setTimeline(today, activities, summaries)),
       // 3. 日报 (今天) - 检查是否已存在
-      invoke('get_saved_report', { date: today }).then(report => {
-        if (report) cache.setReport(today, report);
+      invoke('get_saved_report', { date: today, locale: currentLocale }).then(report => {
+        if (report) cache.setReport(defaultReportCacheKey, report);
       })
     ]).then(() => {
       console.log('预加载完成');
@@ -168,13 +167,20 @@
   }
 
   // 实时响应设置页的背景参数变更（不需要保存即可生效）
-  function handleBackgroundChanged(e) {
-    const d = e.detail;
-    if (d) {
-      if (d.image !== undefined) backgroundImage = d.image;
-      if (d.opacity !== undefined) backgroundOpacity = d.opacity;
-      if (d.blur !== undefined) backgroundBlur = d.blur;
-    }
+  function getDesktopActivitySnapshot() {
+    const desktop = window.__ACTICITY_DESKTOP__ || {};
+    const activeContext = desktop.activeContext || {};
+    const appName = activeContext.appName || document.title || 'Activity Review';
+    const windowTitle = activeContext.windowTitle || document.title || appName;
+    return {
+      appName,
+      windowTitle,
+      browserUrl: activeContext.browserUrl || window.location.href,
+      executablePath: activeContext.executablePath || null,
+      duration: 20,
+      category: activeContext.category || 'development',
+      semanticCategory: activeContext.semanticCategory || null,
+    };
   }
 
   onMount(() => {
@@ -222,6 +228,8 @@
         isPaused = paused;
       } catch (e) {
         console.error('获取录制状态失败:', e);
+        isRecording = true;
+        isPaused = false;
       }
 
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -256,22 +264,6 @@
       // 启动预加载
       preloadApp();
 
-      // 启动后延迟执行一次自动更新检查，避免阻塞首屏渲染
-      const autoUpdateTimer = setTimeout(async () => {
-        try {
-          const shouldCheck = await invoke('should_check_updates');
-          if (!shouldCheck) return;
-
-          await runUpdateFlow({
-            silentWhenUpToDate: true,
-            confirmBeforeDownload: true,
-            onStatusChange: () => {},
-          });
-        } catch (e) {
-          console.warn('自动检查更新失败:', e);
-        }
-      }, 2000);
-
       // 日报自动生成检测：每分钟检查一次
       let lastAutoGenDate = null;  // 防止同一天重复触发
       const autoReportTimer = setInterval(async () => {
@@ -287,12 +279,13 @@
         // 条件：当前小时等于工作结束时间，当前分钟 >= 结束分钟，且今天未自动生成过
         if (currentHour === workEndHour && currentMinute >= workEndMinute && lastAutoGenDate !== today) {
           try {
+            const reportCacheKey = `${today}:${currentLocale || 'zh-CN'}`;
             // 检查今日是否已有日报
-            const existingReport = await invoke('get_saved_report', { date: today });
+            const existingReport = await invoke('get_saved_report', { date: today, locale: currentLocale });
             if (!existingReport) {
               console.log('工作结束时间到达，自动生成日报...');
               await invoke('generate_report', { date: today, force: false, locale: currentLocale });
-              cache.invalidate('report', today);
+              cache.invalidate('report', reportCacheKey);
               lastAutoGenDate = today;
               console.log('日报自动生成完成');
             } else {
@@ -327,21 +320,39 @@
         );
       });
 
+      let activityTickTimer = null;
+      const emitActivityTick = async () => {
+        if (document.hidden || isPaused) {
+          return;
+        }
+
+        try {
+          const activity = await invoke('capture_activity_tick', getDesktopActivitySnapshot());
+          if (!activity) {
+            return;
+          }
+          cache.addActivity(activity);
+          cache.invalidate('overview');
+          window.dispatchEvent(new CustomEvent('activity-added', { detail: activity }));
+        } catch (e) {
+          console.warn('活动采集 tick 失败:', e);
+        }
+      };
+
+      activityTickTimer = setInterval(emitActivityTick, 20000);
+      emitActivityTick();
+
       cleanup = () => {
         unlisten();
         unlistenRecordingState();
         unlistenConfigChanged();
         unsubscribeLocale();
         unsubscribeCache();
-        clearTimeout(autoUpdateTimer);
         clearInterval(autoReportTimer);
+        clearInterval(activityTickTimer);
         mediaQuery.removeEventListener('change', handleSystemThemeChange);
         window.removeEventListener('background-changed', handleBgChange);
       };
-
-      if (disposed) {
-        cleanup();
-      }
     })();
 
     return () => {

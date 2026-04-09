@@ -1,7 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import { ask, open as openDialog } from '@tauri-apps/plugin-dialog';
+  import { invoke, ask, openDialog } from '$lib/runtime.js';
   import { cache } from '../../../lib/stores/cache.js';
   import { locale, t } from '$lib/i18n/index.js';
   import { showToast } from '$lib/stores/toast.js';

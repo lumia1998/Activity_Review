@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-test('Cargo.toml 应声明 cargo-clippy 兼容 feature 以避免 objc 宏触发 check-cfg 误报', () => {
+test('Cargo.toml 历史兼容快照应继续保留 cargo-clippy feature 断言', () => {
   const source = readFileSync(new URL('./src-tauri/Cargo.toml', import.meta.url), 'utf8');
 
   assert.match(

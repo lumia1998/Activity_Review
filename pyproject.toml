@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "acticity-review"
+version = "0.1.0"
+description = "Python + WebView rewrite for Activity Review"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "pydantic>=2.8.0",
+  "pywebview>=5.1",
+  "pystray>=0.19.5",
+  "Pillow>=10.4.0",
+]

@@ -28,7 +28,7 @@ test('桌宠应保留分段轮廓结构，只移除额外方框', () => {
 test('桌宠路径不应复用全局 outline 类名，避免 SVG 包围框泄漏', () => {
   const source = readFileSync(new URL('./AvatarCanvas.svelte', import.meta.url), 'utf8');
   const windowSource = readFileSync(new URL('../../../routes/avatar/AvatarWindow.svelte', import.meta.url), 'utf8');
-  const engineSource = readFileSync(new URL('../../../../src-tauri/src/avatar_engine.rs', import.meta.url), 'utf8');
+  const runtimeSource = readFileSync(new URL('../../../../backend/app/services/runtime_service.py', import.meta.url), 'utf8');
 
   assert.doesNotMatch(source, /class="outline"/);
   assert.match(source, /avatar-stroke/);
@@ -59,10 +59,8 @@ test('桌宠路径不应复用全局 outline 类名，避免 SVG 包围框泄漏
   assert.match(windowSource, /transitionClass = transition\.className/);
   assert.match(windowSource, /getAvatarStateBubble/);
   assert.match(windowSource, /showBubble\(stateBubble\)/);
-  assert.match(engineSource, /const AVATAR_SCALE_DEFAULT: f64 = 0\.9;/);
-  assert.match(engineSource, /const AVATAR_WINDOW_BASE_WIDTH: f64 = 276\.0;/);
-  assert.match(engineSource, /const AVATAR_WINDOW_BASE_HEIGHT: f64 = 170\.0;/);
-  assert.match(engineSource, /const AVATAR_WINDOW_MARGIN: f64 = 8\.0;/);
+  assert.match(runtimeSource, /'avatarOpacity': float\(config.get\('avatar_opacity'\) or 0\.82\)/);
+  assert.match(runtimeSource, /'position': _RUNTIME_STATE.get\('avatar_position'\)/);
 });
 
 test('状态气泡应悬浮在猫头上方，采用紧凑气泡而不是横条', () => {

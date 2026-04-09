@@ -185,7 +185,7 @@ impl LocalAnalyzer {
                 }
             ),
             AppLocale::En => format!(
-                r#"You are a concise and reliable work-review assistant. Based on the data below, write a practical daily work analysis.
+                r#"You are a concise and reliable activity-review assistant. Based on the data below, write a practical daily work analysis.
 
 ## Daily data
 - Date: {date}

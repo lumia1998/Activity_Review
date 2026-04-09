@@ -1,5 +1,5 @@
 <script>
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/runtime.js';
   import { link } from 'svelte-spa-router';
   import { formatDurationLocalized, locale, t } from '$lib/i18n/index.js';
   import LocalizedDatePicker from '../../lib/components/LocalizedDatePicker.svelte';
@@ -16,10 +16,8 @@
   let lastLoadedDate = null;
   $: currentLocale = $locale;
 
-  // 格式化摘要内容：按逗号分隔成多行
   function formatSummary(text) {
     if (!text) return [];
-    // 按中文逗号和句号分割
     return text.split(/[，。,]/).filter(s => s.trim().length > 0);
   }
 
@@ -35,7 +33,6 @@
     }
   }
 
-  // 仅在日期变化时加载，避免 onMount + 响应式语句双重触发
   $: if (selectedDate && selectedDate !== lastLoadedDate) {
     lastLoadedDate = selectedDate;
     loadSummaries();
@@ -43,7 +40,6 @@
 </script>
 
 <div class="p-6 animate-fadeIn" data-locale={currentLocale}>
-  <!-- 页面头部 -->
   <div class="flex items-center justify-between mb-6">
     <div class="flex items-center gap-3">
       <a href="/timeline" use:link class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700">
@@ -53,7 +49,7 @@
       </a>
       <h2 class="text-lg font-semibold text-slate-800 dark:text-white">{t('timelineSummary.title')}</h2>
     </div>
-    
+
     {#key `timeline-summary-date-${currentLocale}`}
       <LocalizedDatePicker
         bind:value={selectedDate}
@@ -82,7 +78,6 @@
       {#each summaries as summary}
         <div class="card p-4">
           <div class="flex gap-4">
-            <!-- 时间 -->
             <div class="w-14 flex-shrink-0 text-center">
               <div class="text-lg font-bold text-primary-600 dark:text-primary-400">
                 {String(summary.hour).padStart(2, '0')}:00
@@ -91,8 +86,7 @@
                 {formatDurationLocalized(summary.total_duration)}
               </div>
             </div>
-            
-            <!-- 摘要内容 -->
+
             <div class="flex-1 min-w-0">
               <ul class="text-slate-700 dark:text-slate-200 text-sm space-y-1">
                 {#each formatSummary(summary.summary) as item}

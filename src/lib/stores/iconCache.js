@@ -1,6 +1,7 @@
 // 应用图标全局缓存（模块级单例，跨页面导航不丢失）
-// 图标通过 Tauri 后端获取并转为 base64，此缓存避免重复 invoke 调用
+// 图标通过后端获取并转为 base64，此缓存避免重复调用
 import { writable } from 'svelte/store';
+import { invoke } from '$lib/runtime.js';
 
 // 模块级缓存对象，不随组件销毁而丢失
 const _iconCache = {};
@@ -11,7 +12,7 @@ const MAX_ICON_CACHE = 120;
 const MAX_PERSISTED_ICON_CACHE = 36;
 const MAX_CONCURRENT_ICON_REQUESTS = 3;
 const FAILED_ICON_RETRY_MS = 30 * 1000;
-const STORAGE_KEY = 'work-review-app-icon-cache-v1';
+const STORAGE_KEY = 'activity-review-app-icon-cache-v1';
 const _failedAt = {};
 let _activeRequestCount = 0;
 

@@ -1359,7 +1359,7 @@ fn ocr_temp_root(data_dir: &Path) -> PathBuf {
     let mut hasher = DefaultHasher::new();
     data_dir.to_string_lossy().hash(&mut hasher);
     std::env::temp_dir()
-        .join("work-review")
+        .join("activity-review")
         .join(format!("ocr-{:016x}", hasher.finish()))
 }
 
@@ -1473,7 +1473,7 @@ mod tests {
     #[test]
     fn 应按窗口中心点选择目标屏幕() {
         let active_window = ActiveWindow {
-            app_name: "Work Review".to_string(),
+            app_name: "Activity Review".to_string(),
             window_title: "测试窗口".to_string(),
             browser_url: None,
             executable_path: None,
@@ -1494,7 +1494,7 @@ mod tests {
     #[test]
     fn 缺少窗口边界时不应生成选屏坐标() {
         let active_window = ActiveWindow {
-            app_name: "Work Review".to_string(),
+            app_name: "Activity Review".to_string(),
             window_title: "测试窗口".to_string(),
             browser_url: None,
             executable_path: None,

@@ -201,7 +201,7 @@ async function main() {
 
   await mkdir(publicIconsDir, { recursive: true });
 
-  const tempDir = await mkdtemp(path.join(tmpdir(), 'work-review-icons-'));
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'activity-review-icons-'));
 
   try {
     for (const target of persistentTargets) {

@@ -1,7 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { relaunch } from '@tauri-apps/plugin-process';
-import { open } from '@tauri-apps/plugin-shell';
+import { invoke, listen, relaunch, open } from '$lib/runtime.js';
 import { confirm } from '$lib/stores/confirm.js';
 import { showToast } from '$lib/stores/toast.js';
 import { t } from '$lib/i18n/index.js';
@@ -54,6 +51,10 @@ function localizeRuntimeStatusMessage(message) {
   }
 
   return text;
+}
+
+function isUnsupportedUpdateFeature(error) {
+  return String(error || '').includes('尚未在 Python 重构版中实现');
 }
 
 async function getRuntimePlatform() {
@@ -165,6 +166,12 @@ export async function runUpdateFlow(options = {}) {
   } catch (error) {
     const errMsg = String(error);
     console.error('检查更新失败:', error);
+
+    if (isUnsupportedUpdateFeature(error)) {
+      onStatusChange(errMsg);
+      showToast(errMsg, 'error');
+      return { updated: false, unsupported: true, error: errMsg };
+    }
 
     if (errMsg.includes('timeout') || errMsg.includes('timed out')) {
       onStatusChange(t('updater.failed'));

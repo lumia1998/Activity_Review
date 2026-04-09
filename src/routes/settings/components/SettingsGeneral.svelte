@@ -1,33 +1,25 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/runtime.js';
   import { formatDurationLocalized, locale, t } from '$lib/i18n/index.js';
+  import { showToast } from '../../../lib/stores/toast.js';
 
   export let config;
 
   const dispatch = createEventDispatcher();
   $: currentLocale = $locale;
   let workHours = '—';
+  const autoStartSupported = true;
+  const dockVisibilitySupported = true;
 
   // 开机自启动状态（独立于 config，由系统 API 驱动）
   let autoStartEnabled = false;
-  
-  onMount(async () => {
-    try {
-      autoStartEnabled = await invoke('is_autostart_enabled');
-      if (config.auto_start !== autoStartEnabled) {
-        config.auto_start = autoStartEnabled;
-        dispatch('change', config);
-      }
-    } catch (e) {
-      console.error('查询自启动状态失败:', e);
-    }
-  });
 
-  // 小时选项 (0-23)
-  const hours = Array.from({ length: 24 }, (_, i) => i);
-  // 分钟选项 (0, 15, 30, 45)
-  const minutes = [0, 15, 30, 45];
+  function showUnsupportedFeatureToast(error) {
+    const message = error?.message || '该功能当前宿主暂不支持';
+    showToast(message, 'error');
+  }
+
 
   // 解析工作时间
   $: startHour = config.work_start_hour ?? 9;
@@ -70,32 +62,51 @@
     dispatch('change', config);
   }
 
-  // 开机自启动切换
-  async function toggleAutoStart() {
+  onMount(async () => {
     try {
       autoStartEnabled = await invoke('is_autostart_enabled');
-      if (autoStartEnabled) {
-        await invoke('disable_autostart');
-      } else {
-        await invoke('enable_autostart');
-      }
-      autoStartEnabled = await invoke('is_autostart_enabled');
+      config.auto_start = autoStartEnabled;
+    } catch (e) {
+      console.error('读取开机自启动状态失败:', e);
+      autoStartEnabled = false;
+      config.auto_start = false;
+    }
+  });
+
+  // 开机自启动切换
+  async function toggleAutoStart() {
+    if (!autoStartSupported) {
+      showToast(t('settingsGeneral.autoStartUnsupported'), 'error');
+      return;
+    }
+
+    try {
+      await invoke(autoStartEnabled ? 'disable_autostart' : 'enable_autostart');
+      autoStartEnabled = !autoStartEnabled;
       config.auto_start = autoStartEnabled;
       dispatch('change', config);
     } catch (e) {
       console.error('设置开机自启动失败:', e);
+      showUnsupportedFeatureToast(e);
     }
   }
 
   // Dock 图标
   async function toggleDockIcon() {
-    config.hide_dock_icon = !config.hide_dock_icon;
+    if (!dockVisibilitySupported) {
+      showToast(t('settingsGeneral.hideDockIconUnsupported'), 'error');
+      return;
+    }
+
+    const nextValue = !config.hide_dock_icon;
     try {
-      await invoke('set_dock_visibility', { visible: !config.hide_dock_icon });
+      await invoke('set_dock_visibility', { visible: !nextValue });
+      config.hide_dock_icon = nextValue;
+      dispatch('change', config);
     } catch (e) {
       console.error('设置 Dock 图标失败:', e);
+      showUnsupportedFeatureToast(e);
     }
-    dispatch('change', config);
   }
 
   function toggleLightweightMode() {
@@ -160,20 +171,21 @@
     <hr class="border-slate-200 dark:border-slate-700" />
 
     <!-- 开机自启动 -->
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-4">
       <div>
         <div class="settings-text">{t('settingsGeneral.autoStart')}</div>
         <div class="settings-muted mt-0.5">{t('settingsGeneral.autoStartDescription')}</div>
       </div>
       <button
         on:click={toggleAutoStart}
-        class="switch-track {autoStartEnabled ? 'bg-primary-500' : 'bg-slate-300 dark:bg-slate-600'}"
+        disabled={!autoStartSupported}
+        class="switch-track disabled:cursor-not-allowed disabled:opacity-50 {autoStartEnabled ? 'bg-primary-500' : 'bg-slate-300 dark:bg-slate-600'}"
       >
         <span class="switch-thumb {autoStartEnabled ? 'translate-x-5' : 'translate-x-0'}"></span>
       </button>
     </div>
 
-    {#if autoStartEnabled}
+    {#if autoStartEnabled && autoStartSupported}
       <div class="settings-block pt-3 border-t border-slate-200 dark:border-slate-700">
         <div class="settings-text">{t('settingsGeneral.autoStartLaunchMode')}</div>
         <div class="mt-2 flex gap-2">
@@ -198,14 +210,18 @@
     <hr class="border-slate-200 dark:border-slate-700" />
 
     <!-- Dock 图标 -->
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-4">
       <div>
         <div class="settings-text">{t('settingsGeneral.hideDockIcon')}</div>
         <div class="settings-muted mt-0.5">{t('settingsGeneral.hideDockIconDescription')}</div>
+        {#if !dockVisibilitySupported}
+          <div class="settings-note mt-2">{t('settingsGeneral.hideDockIconUnsupported')}</div>
+        {/if}
       </div>
       <button
         on:click={toggleDockIcon}
-        class="switch-track {config.hide_dock_icon ? 'bg-primary-500' : 'bg-slate-300 dark:bg-slate-600'}"
+        disabled={!dockVisibilitySupported}
+        class="switch-track disabled:cursor-not-allowed disabled:opacity-50 {config.hide_dock_icon ? 'bg-primary-500' : 'bg-slate-300 dark:bg-slate-600'}"
       >
         <span class="switch-thumb {config.hide_dock_icon ? 'translate-x-5' : 'translate-x-0'}"></span>
       </button>

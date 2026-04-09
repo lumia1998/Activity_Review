@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/runtime.js';
   import { aiStore } from '$lib/stores/ai.js';
   import { locale, t } from '$lib/i18n/index.js';
   

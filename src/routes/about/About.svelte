@@ -1,8 +1,6 @@
 <script>
   import { onDestroy, onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import { open } from '@tauri-apps/plugin-shell';
-  import { getVersion } from '@tauri-apps/api/app';
+  import { invoke, open, getVersion } from '$lib/runtime.js';
   import { locale, t } from '$lib/i18n/index.js';
   import { runUpdateFlow } from '$lib/utils/updater.js';
 
@@ -32,7 +30,7 @@
 
   async function openGitHub() {
     // 使用正确的仓库名（大小写一致）
-    await open('https://github.com/wm94i/Work_Review');
+    await open('https://github.com/lumia1998/Acticity_Review');
   }
   // 通过后端命令直接调用系统文件管理器打开数据目录
   // 绕过 plugin-shell 对本地路径的兼容性问题
@@ -55,11 +53,13 @@
   // 检查更新
   async function checkForUpdates() {
     if (isCheckingUpdate) return;
-    
+
     isCheckingUpdate = true;
     updateStatus = t('about.checkingUpdates');
 
     await runUpdateFlow({
+      silentWhenUpToDate: false,
+      confirmBeforeDownload: true,
       onStatusChange: (status) => {
         updateStatus = status;
       },
@@ -92,11 +92,11 @@
   <div class="mx-auto flex w-full max-w-3xl flex-col gap-4">
     <div class="page-card px-6 py-7 text-center sm:px-8">
       <div class="mx-auto flex h-20 w-20 items-center justify-center rounded-[26px] bg-[linear-gradient(180deg,#eef2ff,#ffffff)] shadow-[0_14px_30px_rgba(99,102,241,0.12)] ring-1 ring-slate-200/80 dark:bg-[linear-gradient(180deg,rgba(49,46,129,0.5),rgba(15,23,42,0.96))] dark:ring-slate-700/70">
-        <img src="/icons/256x256.png" alt="Work Review" class="h-16 w-16 rounded-[18px] object-cover" />
+        <img src="/icons/256x256.png" alt="Activity Review" class="h-16 w-16 rounded-[18px] object-cover" />
       </div>
 
       <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
-        <h1 class="text-[2rem] font-semibold tracking-tight text-slate-900 dark:text-white">Work Review</h1>
+        <h1 class="text-[2rem] font-semibold tracking-tight text-slate-900 dark:text-white">Activity Review</h1>
         <span class="page-inline-chip-brand">v{appVersion}</span>
       </div>
 
@@ -217,9 +217,9 @@
       {/if}
 
       <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
-        <span class="page-inline-chip-brand">Tauri 2</span>
+        <span class="page-inline-chip-brand">Python Backend</span>
+        <span class="page-inline-chip-muted">Desktop Bridge</span>
         <span class="page-inline-chip-muted">Svelte</span>
-        <span class="page-inline-chip-muted">Rust</span>
         <span class="page-inline-chip-muted">SQLite</span>
       </div>
     </div>

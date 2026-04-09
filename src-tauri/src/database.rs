@@ -2294,7 +2294,7 @@ mod tests {
             Activity {
                 id: None,
                 timestamp: now - 30,
-                app_name: "Work Review".to_string(),
+                app_name: "Activity Review".to_string(),
                 window_title: "设置".to_string(),
                 screenshot_path: "wr-b.jpg".to_string(),
                 ocr_text: None,
@@ -2329,14 +2329,14 @@ mod tests {
             .get_daily_stats_with_work_time(&date, 9, 18, 0, 0)
             .expect("读取今日统计失败");
 
-        let work_review = stats
+        let activity_review = stats
             .app_usage
             .iter()
-            .find(|item| item.app_name == "Work Review")
-            .expect("未找到 Work Review 聚合结果");
+            .find(|item| item.app_name == "Activity Review")
+            .expect("未找到 Activity Review 聚合结果");
 
-        assert_eq!(work_review.duration, 1080);
-        assert_eq!(work_review.count, 2);
+        assert_eq!(activity_review.duration, 1080);
+        assert_eq!(activity_review.count, 2);
         assert_eq!(
             stats
                 .app_usage

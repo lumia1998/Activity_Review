@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/runtime.js';
   import { cache } from '../../lib/stores/cache.js';
   import { locale, t } from '$lib/i18n/index.js';
   import { showToast } from '../../lib/stores/toast.js';
@@ -76,6 +76,9 @@
       }
       if (typeof config.lightweight_mode !== 'boolean') {
         config.lightweight_mode = false;
+      }
+      if (typeof config.hide_dock_icon !== 'boolean') {
+        config.hide_dock_icon = false;
       }
       if (typeof config.break_reminder_enabled !== 'boolean') {
         config.break_reminder_enabled = false;

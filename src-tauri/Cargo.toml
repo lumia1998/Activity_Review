@@ -1,5 +1,5 @@
 [package]
-name = "work-review"
+name = "activity-review"
 version = "1.0.34"
 
 description = "个人工作回顾与AI日报助手"

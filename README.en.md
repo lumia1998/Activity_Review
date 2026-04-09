@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="100" alt="Work Review">
+  <img src="public/icons/256x256.png" width="100" alt="Activity Review">
 </p>
 
-<h1 align="center">Work Review</h1>
+<h1 align="center">Activity Review</h1>
 
 <p align="center">
   <strong>A local-first work activity recorder for individuals.</strong>
@@ -13,17 +13,17 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/wm94i/Work_Review/releases/latest">
-    <img src="https://img.shields.io/github/v/release/wm94i/Work_Review?style=flat-square&color=blue" alt="Release">
+  <a href="https://github.com/lumia1998/Acticity_Review/releases/latest">
+    <img src="https://img.shields.io/github/v/release/lumia1998/Acticity_Review?style=flat-square&color=blue" alt="Release">
   </a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux%20(X11%20%7C%20Wayland)-blue?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/github/license/wm94i/Work_Review?style=flat-square" alt="License">
-  <img src="https://img.shields.io/badge/built%20with-Tauri%202%20%2B%20Rust-orange?style=flat-square" alt="Stack">
+  <img src="https://img.shields.io/github/license/lumia1998/Acticity_Review?style=flat-square" alt="License">
+  <img src="https://img.shields.io/badge/built%20with-Python%20%2B%20PyWebView%20%2B%20Svelte-orange?style=flat-square" alt="Stack">
 </p>
 
 ---
 
-Work Review continuously records the apps you use, websites you visit, active windows, and screen context during the day, then turns those fragments into a **reviewable, queryable, and reusable** work trail.
+Activity Review continuously records the apps you use, websites you visit, active windows, and screen context during the day, then turns those fragments into a **reviewable, queryable, and reusable** work trail.
 
 - No manual check-ins
 - Overview, timeline, daily report, and assistant all share the same local data
@@ -40,7 +40,7 @@ Work Review continuously records the apps you use, websites you visit, active wi
 
 This is not a traditional attendance app, and not just another dashboard that piles up time numbers.
 
-Work Review is closer to a personal work-trace system:
+Activity Review is closer to a personal work-trace system:
 
 - Capture work context automatically: apps, websites, screenshots, OCR text, and hourly summaries
 - Answer practical questions: “What did I do today?” or “What has been the main focus this week?”
@@ -92,19 +92,19 @@ Work Review is closer to a personal work-trace system:
 
 ### Today Overview
 
-<img src="docs/Introduction_en/概览.png" alt="Work Review Overview" />
+<img src="docs/Introduction_en/概览.png" alt="Activity Review Overview" />
 
 The overview page combines total duration, work duration, browser usage, website access, hourly activity patterns, and app distribution in one place.
 
 ### Assistant
 
-<img src="docs/Introduction_en/助手.png" alt="Work Review Assistant" />
+<img src="docs/Introduction_en/助手.png" alt="Activity Review Assistant" />
 
 The assistant answers directly from your local records and is useful for recap, summaries, and todo extraction.
 
 ### Desktop Avatar Beta
 
-<img src="docs/桌宠.png" alt="Work Review Desktop Avatar" width="220" />
+<img src="docs/桌宠.png" alt="Activity Review Desktop Avatar" width="220" />
 
 The desktop avatar floats on the desktop and gives lightweight state feedback instead of acting as a full information panel.
 
@@ -124,7 +124,7 @@ The desktop avatar floats on the desktop and gives lightweight state feedback in
 
 ## AI
 
-The core of Work Review is still **local recording**. AI is there to make those records easier to read, search, and review.
+The core of Activity Review is still **local recording**. AI is there to make those records easier to read, search, and review.
 
 | Mode | Description |
 |------|------|
@@ -139,7 +139,7 @@ Supported providers: Ollama, OpenAI-compatible APIs, DeepSeek, Qwen, Zhipu, Kimi
 
 ## Installation
 
-Download the latest build from [Releases](https://github.com/wm94i/Work_Review/releases/latest).
+Download the latest build from [Releases](https://github.com/lumia1998/Acticity_Review/releases/latest).
 
 | Platform | Package |
 |------|--------|
@@ -201,8 +201,8 @@ grim / gnome-screenshot / spectacle
 
 | Layer | Technology |
 |------|------|
-| Desktop shell | Tauri 2 |
-| Backend | Rust |
+| Desktop host | Python + PyWebView |
+| Backend API | FastAPI |
 | Frontend | Svelte 4 + Vite |
 | Styling | Tailwind CSS |
 | Storage | SQLite |
@@ -213,17 +213,18 @@ grim / gnome-screenshot / spectacle
 
 ```bash
 npm install
-npm run tauri:dev
-npm run tauri:build
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+python -m desktop.main
 ```
 
-Requires Node.js 18+, stable Rust, and Tauri 2 CLI.
+Requires Node.js 18+ and Python 3.11+.
 
 ```text
 src/                  Svelte frontend
 src/routes/           Pages (overview / timeline / assistant / report / settings)
 src/lib/              Components, stores, utilities
-src-tauri/src/        Rust backend (monitoring, database, analysis, privacy, updates)
+backend/app/          FastAPI backend (stats, timeline, config, runtime, assistant)
+desktop/              Python desktop host (PyWebView startup and window bridge)
 ```
 
 ---
@@ -241,19 +242,19 @@ MIT
 
 ## Star History
 
-<a href="https://www.star-history.com/#wm94i/Work_Review&Date">
+<a href="https://www.star-history.com/#lumia1998/Acticity_Review&Date">
   <picture>
     <source
       media="(prefers-color-scheme: dark)"
-      srcset="https://api.star-history.com/svg?repos=wm94i/Work_Review&type=Date&theme=dark"
+      srcset="https://api.star-history.com/svg?repos=lumia1998/Acticity_Review&type=Date&theme=dark"
     />
     <source
       media="(prefers-color-scheme: light)"
-      srcset="https://api.star-history.com/svg?repos=wm94i/Work_Review&type=Date"
+      srcset="https://api.star-history.com/svg?repos=lumia1998/Acticity_Review&type=Date"
     />
     <img
       alt="Star History Chart"
-      src="https://api.star-history.com/svg?repos=wm94i/Work_Review&type=Date"
+      src="https://api.star-history.com/svg?repos=lumia1998/Acticity_Review&type=Date"
     />
   </picture>
 </a>

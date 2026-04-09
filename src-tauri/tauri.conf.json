@@ -60,17 +60,17 @@
       }
     }
   },
-  "productName": "Work Review",
-  "mainBinaryName": "Work_Review",
+  "productName": "Activity Review",
+  "mainBinaryName": "Activity_Review",
   "version": "1.0.34",
-  "identifier": "com.workreview.app",
+  "identifier": "com.activityreview.app",
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE5RTJFOUZBREEwMTA5RjIKUldUeUNRSGErdW5pcVdnajJvT3B2Vm9wdXlwb0QvVTBoQUZTTGYvSHJ2emhma3BWdnE3Q3dJTnkK",
       "endpoints": [
-        "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/latest/download/updater-ghproxy.json",
-        "https://ghp.ci/https://github.com/wm94i/Work_Review/releases/latest/download/updater-ghp.json",
-        "https://github.com/wm94i/Work_Review/releases/latest/download/updater.json"
+        "https://ghproxy.cn/https://github.com/lumia1998/Acticity_Review/releases/latest/download/updater-ghproxy.json",
+        "https://ghp.ci/https://github.com/lumia1998/Acticity_Review/releases/latest/download/updater-ghp.json",
+        "https://github.com/lumia1998/Acticity_Review/releases/latest/download/updater.json"
       ],
       "windows": {
         "installMode": "passive"

@@ -109,18 +109,18 @@ function createCache() {
     }),
 
     // 使缓存过期
-    invalidate: (type, date = null) => update(c => {
+    invalidate: (type, key = null) => update(c => {
       if (type === 'overview') {
         return { ...c, overview: { ...c.overview, timestamp: 0 } };
       }
-      if (type === 'timeline' && date) {
+      if (type === 'timeline' && key) {
         const timeline = { ...c.timeline };
-        delete timeline[date];
+        delete timeline[key];
         return { ...c, timeline };
       }
-      if (type === 'report' && date) {
+      if (type === 'report' && key) {
         const reports = { ...c.reports };
-        delete reports[date];
+        delete reports[key];
         return { ...c, reports };
       }
       return c;

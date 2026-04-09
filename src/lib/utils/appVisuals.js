@@ -9,6 +9,9 @@ const electronSvg = `data:image/svg+xml;utf8,${encodeURIComponent(
 )}`;
 
 const fallbackIconMap = new Map([
+  ['activity review', '/icons/256x256.png'],
+  ['activity-review', '/icons/256x256.png'],
+  ['activity_review', '/icons/256x256.png'],
   ['work review', '/icons/256x256.png'],
   ['work-review', '/icons/256x256.png'],
   ['work_review', '/icons/256x256.png'],
@@ -66,7 +69,14 @@ export function getFallbackAppIcon(appName) {
     return fallbackIconMap.get(normalized);
   }
 
-  if (normalized.includes('work review') || normalized.includes('work-review') || normalized.includes('work_review')) {
+  if (
+    normalized.includes('activity review')
+    || normalized.includes('activity-review')
+    || normalized.includes('activity_review')
+    || normalized.includes('work review')
+    || normalized.includes('work-review')
+    || normalized.includes('work_review')
+  ) {
     return '/icons/256x256.png';
   }
 

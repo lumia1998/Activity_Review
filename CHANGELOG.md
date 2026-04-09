@@ -222,7 +222,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复 `v1.0.18` 发布产物命名与 `updater.json` 不一致导致的在线更新失败问题：自动更新清单、安装包和签名现在会统一对齐，避免清单指向不存在的下载地址。
 
 ### 优化
-- 统一应用构建产物命名为 `Work_Review`，不再生成带空格或 `.` 的安装包、应用包和更新文件名，降低 GitHub Release 资产命名漂移带来的风险。
+- 统一应用构建产物命名为 `Activity_Review`，不再生成带空格或 `.` 的安装包、应用包和更新文件名，降低 GitHub Release 资产命名漂移带来的风险。
 - 优化 Release workflow 与 tag 发布链路，统一发布说明中的安装路径和产物名称，确保 GitHub Actions 在发版时生成稳定一致的更新资产。
 
 ## [1.0.18] - 2026-03-23
@@ -278,7 +278,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.15] - 2026-03-20
 
 ### 修复
-- 修复应用名称重复显示的问题：`work-review / Work Review` 等别名现在会在概览统计、最近应用和运行中应用列表中统一归并，避免同一应用被拆成多条记录。
+- 修复应用名称重复显示的问题：`activity-review / Activity Review` 以及旧别名 `work-review / Work Review` 现在会在概览统计、最近应用和运行中应用列表中统一归并，避免同一应用被拆成多条记录。
 - 修复前端图标缓存长期运行时可能持续增长的问题：全局应用图标缓存现已加入 LRU 上限，降低长时间使用后的内存累积风险。
 - 修复多页面布局密度与对齐不一致的问题：统一概览、时间线、日报、设置、关于五个页面的标题区、卡片内边距、控件高度、提示区和空状态留白，减少视觉偏移和局部过松问题。
 

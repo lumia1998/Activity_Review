@@ -11,7 +11,7 @@
 
   export let state = {
     mode: 'idle',
-    appName: 'Work Review',
+    appName: 'Activity Review',
     contextLabel: '待命中',
     hint: '',
     isIdle: true,

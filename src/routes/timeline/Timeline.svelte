@@ -1,8 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
-  import { open } from '@tauri-apps/plugin-shell';
+  import { invoke, listen, open } from '$lib/runtime.js';
   import { cache } from '../../lib/stores/cache.js';
   import { confirm } from '../../lib/stores/confirm.js';
   import { showToast } from '../../lib/stores/toast.js';

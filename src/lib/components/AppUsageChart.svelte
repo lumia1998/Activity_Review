@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/runtime.js';
   import { formatDurationLocalized, locale, t } from '$lib/i18n/index.js';
   import { appIconStore, getIconCacheKey, preloadAppIcons } from '../stores/iconCache.js';
   import { resolveAppIconSrc } from '../utils/appVisuals.js';

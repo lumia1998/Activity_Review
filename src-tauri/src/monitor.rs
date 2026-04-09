@@ -197,7 +197,8 @@ pub fn normalize_display_app_name(app_name: &str) -> String {
 
     let normalized = trimmed.to_lowercase();
     match normalized.as_str() {
-        "work-review" | "work_review" | "workreview" | "work review" => "Work Review".to_string(),
+        "activity-review" | "activity_review" | "activityreview" | "activity review" => "Activity Review".to_string(),
+        "work-review" | "work_review" | "workreview" | "work review" => "Activity Review".to_string(),
         "chrome" | "google chrome" => "Google Chrome".to_string(),
         "msedge" | "edge" | "microsoft edge" => "Microsoft Edge".to_string(),
         "brave" | "brave browser" => "Brave Browser".to_string(),
@@ -2101,9 +2102,12 @@ fn normalize_electron_app_name(process_name: &str, window_title: &str) -> String
     let title_lower = window_title.to_lowercase();
 
     let process_aliases = [
-        ("work-review", "Work Review"),
-        ("work_review", "Work Review"),
-        ("workreview", "Work Review"),
+        ("activity-review", "Activity Review"),
+        ("activity_review", "Activity Review"),
+        ("activityreview", "Activity Review"),
+        ("work-review", "Activity Review"),
+        ("work_review", "Activity Review"),
+        ("workreview", "Activity Review"),
     ];
 
     for (pattern, real_name) in process_aliases.iter() {
@@ -2155,7 +2159,8 @@ fn normalize_electron_app_name(process_name: &str, window_title: &str) -> String
         ("code - ", "VS Code"), // VS Code 窗口标题常见格式
         // AI 工具
         ("antigravity", "Antigravity"),
-        ("work review", "Work Review"),
+        ("activity review", "Activity Review"),
+        ("work review", "Activity Review"),
         ("copilot", "GitHub Copilot"),
         ("claude", "Claude Desktop"),
         // 通讯工具

@@ -1,14 +1,14 @@
 <script>
   import { link, location } from 'svelte-spa-router';
-  import { invoke } from '@tauri-apps/api/core';
-  import { emitTo } from '@tauri-apps/api/event';
+  import { invoke, emitTo } from '$lib/runtime.js';
   import { createEventDispatcher } from 'svelte';
   import { getLocaleShortLabel, locale, setLocale, t } from '$lib/i18n/index.js';
+  import { showToast } from '$lib/stores/toast.js';
 
   export let isRecording = true;
   export let isPaused = false;
   export let theme = 'system';
-  
+
   const dispatch = createEventDispatcher();
   let localeMenuOpen = false;
   let localeMenuContainer;
@@ -76,6 +76,7 @@
       }
     } catch (e) {
       console.error('切换录制状态失败:', e);
+      showToast(String(e?.message || e || '录制控制失败'), 'error');
     }
   }
 
@@ -98,10 +99,10 @@
       <div class="flex items-center gap-3 min-w-0">
         <div class="flex items-center gap-3 min-w-0">
           <div class="w-10 h-10 rounded-xl overflow-hidden shadow-md shrink-0 ring-1 ring-slate-200/50 dark:ring-slate-700/50">
-            <img src="/icons/256x256.png" alt="Work Review" class="w-full h-full object-cover" />
+            <img src="/icons/256x256.png" alt="Activity Review" class="w-full h-full object-cover" />
           </div>
           <div class="min-w-0">
-            <h1 class="sidebar-brand-title">Work Review</h1>
+            <h1 class="sidebar-brand-title">Activity Review</h1>
             <p class="sidebar-brand-subtitle">{translate('sidebar.tagline')}</p>
           </div>
         </div>
