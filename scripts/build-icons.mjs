@@ -10,37 +10,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 
-const masterIcon = path.join(projectRoot, 'src-tauri', 'icons', 'icon.png');
+const masterIcon = path.join(projectRoot, 'public', 'icon.png');
 const windowsMasterIcon = path.join(
   projectRoot,
-  'src-tauri',
+  'public',
   'icons',
-  'windows-icon.png'
+  '256x256.png'
 );
-const tauriIconsDir = path.join(projectRoot, 'src-tauri', 'icons');
+const generatedIconsDir = path.join(projectRoot, 'public', 'generated-icons');
 const publicIconsDir = path.join(projectRoot, 'public', 'icons');
-const tauriCliPath = path.join(
-  projectRoot,
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'tauri.cmd' : 'tauri'
-);
 const hasFfmpeg = commandExists('ffmpeg');
 const hasSips = commandExists('sips');
 const hasIconutil = commandExists('iconutil', ['-h']);
-const hasTauriCli = existsSync(tauriCliPath);
 const hasDedicatedWindowsIcon = existsSync(windowsMasterIcon);
 
 const persistentTargets = [
-  { size: 16, output: path.join(tauriIconsDir, '16x16.png') },
-  { size: 32, output: path.join(tauriIconsDir, '32x32.png') },
-  { size: 48, output: path.join(tauriIconsDir, '48x48.png') },
-  { size: 64, output: path.join(tauriIconsDir, '64x64.png') },
-  { size: 128, output: path.join(tauriIconsDir, '128x128.png') },
-  { size: 256, output: path.join(tauriIconsDir, '128x128@2x.png') },
-  { size: 256, output: path.join(tauriIconsDir, '256x256.png') },
-  { size: 512, output: path.join(tauriIconsDir, '512x512.png') },
-  { size: 64, output: path.join(tauriIconsDir, 'tray-icon.png') },
+  { size: 16, output: path.join(generatedIconsDir, '16x16.png') },
+  { size: 32, output: path.join(generatedIconsDir, '32x32.png') },
+  { size: 48, output: path.join(generatedIconsDir, '48x48.png') },
+  { size: 64, output: path.join(generatedIconsDir, '64x64.png') },
   { size: 128, output: path.join(publicIconsDir, '128x128.png') },
   { size: 256, output: path.join(publicIconsDir, '256x256.png') },
 ];
@@ -133,7 +121,7 @@ async function buildPng(size, output, source = masterIcon) {
 async function buildIcns(tempDir) {
   if (!hasIconutil) {
     if (process.platform === 'darwin') {
-      throw new Error('缺少 tauri CLI 或 iconutil，无法生成 macOS icns 图标');
+      throw new Error('缺少 iconutil，无法生成 macOS icns 图标');
     }
 
     return false;
@@ -150,32 +138,9 @@ async function buildIcns(tempDir) {
     '--convert',
     'icns',
     '--output',
-    path.join(tauriIconsDir, 'icon.icns'),
+    path.join(generatedIconsDir, 'icon.icns'),
     iconsetDir,
   ]);
-
-  return true;
-}
-
-async function buildNativeIconsWithTauri(tempDir) {
-  if (!hasTauriCli) {
-    return false;
-  }
-
-  const tauriTempDir = path.join(tempDir, 'tauri-icons');
-  await mkdir(tauriTempDir, { recursive: true });
-
-  run(tauriCliPath, ['icon', masterIcon, '-o', tauriTempDir]);
-  if (!hasDedicatedWindowsIcon) {
-    await copyFile(
-      path.join(tauriTempDir, 'icon.ico'),
-      path.join(tauriIconsDir, 'icon.ico')
-    );
-  }
-  await copyFile(
-    path.join(tauriTempDir, 'icon.icns'),
-    path.join(tauriIconsDir, 'icon.icns')
-  );
 
   return true;
 }
@@ -191,7 +156,7 @@ async function buildIco(tempDir) {
   }
 
   const ico = await pngToIco(icoPngs);
-  await writeFile(path.join(tauriIconsDir, 'icon.ico'), ico);
+  await writeFile(path.join(generatedIconsDir, 'icon.ico'), ico);
 }
 
 async function main() {
@@ -200,6 +165,7 @@ async function main() {
   }
 
   await mkdir(publicIconsDir, { recursive: true });
+  await mkdir(generatedIconsDir, { recursive: true });
 
   const tempDir = await mkdtemp(path.join(tmpdir(), 'activity-review-icons-'));
 
@@ -208,21 +174,12 @@ async function main() {
       await buildPng(target.size, target.output);
     }
 
-    const builtNativeIcons = await buildNativeIconsWithTauri(tempDir);
     await buildIco(tempDir);
+    await buildIcns(tempDir);
 
-    if (!builtNativeIcons) {
-      await buildIcns(tempDir);
-    }
-
-    // 保持 public 下主图和 src-tauri 主图一致，避免应用内品牌图资源分叉
     await copyFile(masterIcon, path.join(projectRoot, 'public', 'icon.png'));
 
-    console.log(
-      builtNativeIcons
-        ? '图标生成完成：原生图标已切换为 Tauri CLI 官方生成链路'
-        : `图标生成完成：Windows ICO 尺寸 ${windowsIcoSizes.join(', ')}`
-    );
+    console.log(`图标生成完成：Windows ICO 尺寸 ${windowsIcoSizes.join(', ')}`);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

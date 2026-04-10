@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
+import urllib.request
+import urllib.error
 import webbrowser
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -11,15 +14,26 @@ from typing import Any
 import webview
 
 from backend.app.services.data_service import data_dir_path
+from backend.app.services.config_service import load_config, save_config
 
 from .tray import create_tray_controller
+from .single_instance import SingleInstanceManager, notify_existing_instance
 from .windows import WindowState
+
+logger = logging.getLogger(__name__)
 
 FRONTEND_DEV_URL = 'http://127.0.0.1:5173'
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DIST_INDEX = PROJECT_ROOT / 'dist' / 'index.html'
 RUNTIME_STATE_PATH = data_dir_path() / 'runtime_state.json'
-WINDOW_LABEL = 'main'
+MAIN_WINDOW_LABEL = 'main'
+AVATAR_WINDOW_LABEL = 'avatar'
+WINDOW_LABEL = MAIN_WINDOW_LABEL
+
+API_ROOT = 'http://127.0.0.1:8000'
+API_BASE = f'{API_ROOT}/api'
+RECORDER_INTERVAL = 20  # seconds between activity ticks
+_WINDOW_APIS: dict[str, 'DesktopApi'] = {}
 
 
 def resolve_start_url() -> str:
@@ -51,14 +65,128 @@ def _save_runtime_state(patch: dict[str, Any]) -> None:
     RUNTIME_STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
+# ── Recorder thread ─────────────────────────────────────────────────────────
+
+def _api_post(path: str, payload: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """POST JSON to local FastAPI, return parsed response or None."""
+    url = f'{API_BASE}{path}'
+    data = json.dumps(payload or {}, ensure_ascii=False).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, Exception):
+        return None
+
+
+def _api_get(path: str) -> dict[str, Any] | None:
+    """GET from local FastAPI."""
+    url = f'{API_BASE}{path}'
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, Exception):
+        return None
+
+
+def _load_desktop_state() -> dict[str, bool]:
+    state = _load_runtime_state()
+    config = load_config()
+    return {
+        'is_recording': bool(state.get('is_recording', True)),
+        'is_paused': bool(state.get('is_paused', False)),
+        'lightweight_mode': bool(config.get('lightweight_mode', False)),
+        'avatar_enabled': bool(config.get('avatar_enabled', True)),
+    }
+
+
+def _api_ping() -> bool:
+    try:
+        with urllib.request.urlopen(f'{API_ROOT}/health', timeout=5) as resp:
+            payload = json.loads(resp.read().decode('utf-8'))
+            return payload.get('status') == 'ok'
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, Exception):
+        return False
+
+
+def _recorder_loop(stop_event: threading.Event) -> None:
+    """Background thread that periodically captures foreground window activity.
+
+    Each tick:
+    1. Check if recording is paused (via runtime state file)
+    2. Get foreground window info via monitor_service
+    3. Enrich with browser URL via browser_service
+    4. POST to FastAPI /api/runtime/activity-tick
+    """
+    logger.info('Recorder thread started')
+
+    # Wait for FastAPI to be available
+    for attempt in range(30):
+        if stop_event.is_set():
+            return
+        if _api_ping():
+            break
+        time.sleep(1)
+    else:
+        logger.error('FastAPI not available after 30s, recorder exiting')
+        return
+
+    while not stop_event.is_set():
+        try:
+            state = _load_runtime_state()
+            is_paused = state.get('is_paused', False)
+            is_recording = state.get('is_recording', True)
+
+            if is_recording and not is_paused:
+                _capture_tick()
+        except Exception as exc:
+            logger.debug('Recorder tick error: %s', exc)
+
+        # Sleep in small increments to respond quickly to stop_event
+        for _ in range(RECORDER_INTERVAL):
+            if stop_event.is_set():
+                break
+            time.sleep(1)
+
+    logger.info('Recorder thread stopped')
+
+
+def _capture_tick() -> None:
+    """Capture a single activity tick from system state."""
+    try:
+        from backend.app.services.monitor_service import get_foreground_window_info, is_window_eligible
+        from backend.app.services.browser_service import enrich_activity_payload
+    except ImportError:
+        return
+
+    info = get_foreground_window_info()
+    if not is_window_eligible(info):
+        return
+
+    payload = info.to_payload()
+    payload = enrich_activity_payload(payload)
+
+    # Remove internal fields not expected by the API
+    payload.pop('hwnd', None)
+    payload.pop('pid', None)
+
+    _api_post('/runtime/activity-tick', payload)
+
+
+# ── DesktopApi ──────────────────────────────────────────────────────────────
+
 class DesktopApi:
     def __init__(self, app_version: str, window_state: WindowState) -> None:
         self.app_version = app_version
         self.window_state = window_state
         self.window: webview.Window | None = None
+        self._stop_event = threading.Event()
+        self._recorder_thread: threading.Thread | None = None
+        self._single_instance: SingleInstanceManager | None = None
 
     def attach_window(self, window: webview.Window) -> None:
         self.window = window
+        _WINDOW_APIS[self.currentWindowLabel] = self
 
     @property
     def currentWindowLabel(self) -> str:
@@ -84,7 +212,8 @@ class DesktopApi:
 
     def _sync_window_visibility(self, visible: bool) -> None:
         self.window_state.visible = bool(visible)
-        _save_runtime_state({'main_window_visible': bool(visible)})
+        if self.currentWindowLabel == WINDOW_LABEL:
+            _save_runtime_state({'main_window_visible': bool(visible)})
         self._dispatch_event('window-visibility-changed', {'visible': bool(visible)})
 
     def inject_bridge(self) -> None:
@@ -133,6 +262,64 @@ class DesktopApi:
 """
         window.evaluate_js(script)
 
+    def _activate_existing_window(self) -> None:
+        try:
+            self.showWindow()
+        except Exception:
+            return
+
+    def toggle_recording(self) -> None:
+        """Toggle recording pause/resume via API."""
+        state = _load_runtime_state()
+        is_paused = state.get('is_paused', False)
+        if is_paused:
+            _api_post('/runtime/resume-recording')
+        else:
+            _api_post('/runtime/pause-recording')
+        # Sync tray menu state
+        if self._tray_controller:
+            self._tray_controller.refresh_menu()
+
+    def toggle_lightweight_mode(self) -> None:
+        """Toggle lightweight mode (hide main window, keep tray)."""
+        config = load_config()
+        lightweight = bool(config.get('lightweight_mode', False))
+        config['lightweight_mode'] = not lightweight
+        save_config(config)
+        if config['lightweight_mode']:
+            self.hideWindow()
+        else:
+            self.showWindow()
+        if self._tray_controller:
+            self._tray_controller.refresh_menu()
+
+    def toggle_avatar(self) -> None:
+        """Toggle avatar visibility."""
+        config = load_config()
+        avatar_enabled = bool(config.get('avatar_enabled', True))
+        config['avatar_enabled'] = not avatar_enabled
+        if not config['avatar_enabled']:
+            config['break_reminder_enabled'] = False
+        save_config(config)
+        avatar_api = _WINDOW_APIS.get(AVATAR_WINDOW_LABEL)
+        if avatar_api and avatar_api.window:
+            try:
+                if config['avatar_enabled']:
+                    avatar_api.window.show()
+                    avatar_api.window_state.visible = True
+                else:
+                    avatar_api.window.hide()
+                    avatar_api.window_state.visible = False
+            except Exception:
+                pass
+        self.emitTo(AVATAR_WINDOW_LABEL, 'avatar-visibility-changed', {'visible': config['avatar_enabled']})
+        if self._tray_controller:
+            self._tray_controller.refresh_menu()
+
+    _tray_controller: Any = None
+
+    # ── pywebview API methods ────────────────────────────────────────────
+
     def openExternal(self, url: str) -> bool:
         if not url:
             return False
@@ -148,9 +335,13 @@ class DesktopApi:
         return self.app_version
 
     def emitTo(self, label: str, event_name: str, payload: Any = None) -> bool:
-        if label and label != self.currentWindowLabel:
+        if not label or label == self.currentWindowLabel:
+            self._dispatch_event(event_name, payload)
+            return True
+        target = _WINDOW_APIS.get(label)
+        if target is None:
             return False
-        self._dispatch_event(event_name, payload)
+        target._dispatch_event(event_name, payload)
         return True
 
     def listenWindowEvent(self, event_name: str) -> bool:
@@ -231,14 +422,49 @@ class DesktopApi:
         return bool(window.create_confirmation_dialog(title, message))
 
 
+# ── Bootstrap ────────────────────────────────────────────────────────────────
+
+def _create_avatar_window(avatar_api: DesktopApi) -> webview.Window:
+    runtime_state = _load_runtime_state()
+    config = load_config()
+    position = runtime_state.get('avatar_position') or {}
+    avatar_enabled = bool(config.get('avatar_enabled', True))
+    return webview.create_window(
+        title='Acticity Review Avatar',
+        url=resolve_start_url(),
+        js_api=avatar_api,
+        width=280,
+        height=280,
+        x=position.get('x'),
+        y=position.get('y'),
+        hidden=not avatar_enabled,
+        frameless=True,
+        easy_drag=False,
+        shadow=False,
+        focus=False,
+        on_top=True,
+        background_color='#000000',
+        transparent=True,
+    )
+
+
 def _bootstrap(window: webview.Window, desktop_api: DesktopApi) -> None:
-    stop_event = threading.Event()
+    stop_event = desktop_api._stop_event
     tray = create_tray_controller(
         on_show=desktop_api.showWindow,
         on_hide=desktop_api.hideWindow,
         on_quit=window.destroy,
+        on_toggle_recording=desktop_api.toggle_recording,
+        on_toggle_lightweight=desktop_api.toggle_lightweight_mode,
+        on_toggle_avatar=desktop_api.toggle_avatar,
+        get_state=_load_desktop_state,
     )
+    desktop_api._tray_controller = tray
     tray.start(visible=bool(_load_runtime_state().get('dock_visible', True)))
+
+    recorder = threading.Thread(target=_recorder_loop, args=(stop_event,), daemon=True)
+    recorder.start()
+    desktop_api._recorder_thread = recorder
 
     def on_loaded(*_args: Any) -> None:
         desktop_api.inject_bridge()
@@ -264,6 +490,8 @@ def _bootstrap(window: webview.Window, desktop_api: DesktopApi) -> None:
     def on_closing(*_args: Any) -> bool:
         stop_event.set()
         tray.stop()
+        if desktop_api._single_instance:
+            desktop_api._single_instance.close()
         return True
 
     window.events.loaded += on_loaded
@@ -293,8 +521,18 @@ def _bootstrap(window: webview.Window, desktop_api: DesktopApi) -> None:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+
     window_state = WindowState(label=WINDOW_LABEL)
     desktop_api = DesktopApi(app_version=resolve_version(), window_state=window_state)
+    avatar_state = WindowState(label=AVATAR_WINDOW_LABEL, visible=bool(load_config().get('avatar_enabled', True)))
+    avatar_api = DesktopApi(app_version=resolve_version(), window_state=avatar_state)
+    single_instance = SingleInstanceManager(on_activate=desktop_api._activate_existing_window)
+    if not single_instance.acquire():
+        notify_existing_instance()
+        return
+    desktop_api._single_instance = single_instance
+
     window = webview.create_window(
         title='Acticity Review',
         url=resolve_start_url(),
@@ -303,8 +541,15 @@ def main() -> None:
         height=700,
         min_size=(800, 600),
     )
+    avatar_window = _create_avatar_window(avatar_api)
     desktop_api.attach_window(window)
-    webview.start(_bootstrap, window, desktop_api)
+    avatar_api.attach_window(avatar_window)
+
+    def on_avatar_loaded(*_args: Any) -> None:
+        avatar_api.inject_bridge()
+
+    avatar_window.events.loaded += on_avatar_loaded
+    webview.start(lambda: _bootstrap(window, desktop_api))
 
 
 if __name__ == '__main__':

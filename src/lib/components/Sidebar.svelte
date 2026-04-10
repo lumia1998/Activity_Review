@@ -16,6 +16,7 @@
   const navItems = [
     { path: '/', labelKey: 'sidebar.nav.overview', icon: 'home' },
     { path: '/timeline', labelKey: 'sidebar.nav.timeline', icon: 'timeline' },
+    { path: '/timeline/intelligence', labelKey: 'sidebar.nav.intelligence', icon: 'sparkles' },
     { path: '/report', labelKey: 'sidebar.nav.report', icon: 'report' },
     { path: '/ask', labelKey: 'sidebar.nav.ask', icon: 'ask' },
     { path: '/settings', labelKey: 'sidebar.nav.settings', icon: 'settings' },
@@ -164,9 +165,9 @@
                   <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                {:else if item.icon === 'report'}
+                {:else if item.icon === 'sparkles'}
                   <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.813 15.904L9 18l-.813-2.096a2 2 0 00-1.091-1.091L5 14l2.096-.813a2 2 0 001.091-1.091L9 10l.813 2.096a2 2 0 001.091 1.091L13 14l-2.096.813a2 2 0 00-1.091 1.091zM18 2l.74 1.91L20.65 5l-1.91.74L18 7.65l-.74-1.91L15.35 5l1.91-.74L18 2zm0 12l1.145 2.955L22 18.1l-2.855 1.145L18 22l-1.145-2.755L14 18.1l2.855-1.145L18 14z" />
                   </svg>
                 {:else if item.icon === 'ask'}
                   <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">

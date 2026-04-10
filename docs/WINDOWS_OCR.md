@@ -48,17 +48,23 @@ pip install paddlepaddle paddleocr -i https://mirror.baidu.com/pypi/simple
 
 ## 构建 Windows 安装包
 
+当前仓库主线已经迁移为 Python + PyWebView + FastAPI。
+
+开发阶段建议直接运行：
+
 ```bash
 npm install
-npm run tauri:build
+python -m pip install -e .
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+python -m desktop.main
 ```
 
-当前 Windows 打包目标来自 `src-tauri/tauri.conf.json`，为 `nsis`。
+当前发布流程由 `.github/workflows/release.yml` 打包桌面源码 bundle，不再依赖 `src-tauri/tauri.conf.json` 或 `tauri:build`。
 
-常见产物位置：
+常见发布产物位置：
 
 ```text
-src-tauri/target/release/bundle/nsis/*.exe
+release-bundle/*.zip
 ```
 
 ## 补充说明

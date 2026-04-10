@@ -259,14 +259,36 @@ def generate_report_for_date(date: str, force: bool = True, locale: str | None =
     if existing and not force and existing.get('locale') == normalized_locale:
         return existing
 
+    # 先自动生成小时摘要
+    try:
+        from .hourly_service import generate_hourly_summaries
+        generate_hourly_summaries(date)
+    except Exception:
+        pass
+
     content = build_report_content(date, normalized_locale)
     config = load_config()
+    ai_mode = config.get('ai_mode') or 'local'
+    model_name = None
+
+    # AI 增强模式
+    if ai_mode == 'summary':
+        try:
+            from .ai_service import generate_ai_report
+            custom_prompt = config.get('daily_report_custom_prompt') or ''
+            ai_result = generate_ai_report(date, content, custom_prompt, normalized_locale)
+            if ai_result.get('content'):
+                content = ai_result['content']
+            model_name = ai_result.get('model')
+        except Exception:
+            pass  # AI 不可用时回退到模板
+
     report = {
         'date': date,
         'locale': normalized_locale,
         'content': content,
-        'ai_mode': config.get('ai_mode') or 'local',
-        'model_name': None,
+        'ai_mode': ai_mode,
+        'model_name': model_name,
         'created_at': int(datetime.now().timestamp()),
     }
 

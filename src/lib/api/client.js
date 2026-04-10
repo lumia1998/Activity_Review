@@ -119,29 +119,33 @@ function getBrowserPlatform() {
   return 'unknown';
 }
 
-function getLinuxSessionSupport() {
-  const platform = getBrowserPlatform();
-  if (platform !== 'linux') {
+async function getLinuxSessionSupport() {
+  try {
+    return await request('/api/system/platform-support');
+  } catch {
+    const platform = getBrowserPlatform();
+    if (platform !== 'linux') {
+      return {
+        platform,
+        sessionType: 'unsupported',
+        desktopEnvironment: 'unsupported',
+        screenshotSupported: platform !== 'unknown',
+        activeWindowSupported: platform !== 'unknown',
+        activeWindowProvider: platform === 'windows' ? 'windows-api' : platform === 'macos' ? 'appkit' : 'unknown',
+        browserUrlSupportLevel: 'limited',
+      };
+    }
+
     return {
-      platform,
-      sessionType: 'unsupported',
-      desktopEnvironment: 'unsupported',
-      screenshotSupported: platform !== 'unknown',
-      activeWindowSupported: platform !== 'unknown',
-      activeWindowProvider: platform === 'windows' ? 'windows-api' : platform === 'macos' ? 'appkit' : 'unknown',
+      platform: 'linux',
+      sessionType: 'unknown',
+      desktopEnvironment: 'unknown',
+      screenshotSupported: true,
+      activeWindowSupported: false,
+      activeWindowProvider: 'unknown',
       browserUrlSupportLevel: 'limited',
     };
   }
-
-  return {
-    platform: 'linux',
-    sessionType: 'unknown',
-    desktopEnvironment: 'unknown',
-    screenshotSupported: true,
-    activeWindowSupported: false,
-    activeWindowProvider: 'unknown',
-    browserUrlSupportLevel: 'limited',
-  };
 }
 
 export async function invoke(command, payload = {}) {
@@ -363,6 +367,69 @@ export async function invoke(command, payload = {}) {
       return request('/api/runtime/is-autostart-enabled');
     case 'should_check_updates':
       return request('/api/runtime/should-check-updates');
+    // ---- 工作智能 API ----
+    case 'get_work_sessions':
+      return request('/api/intelligence/work-sessions', {
+        method: 'POST',
+        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
+      });
+    case 'recognize_work_intents':
+      return request('/api/intelligence/recognize-intents', {
+        method: 'POST',
+        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
+      });
+    case 'generate_weekly_review':
+      return request('/api/intelligence/weekly-review', {
+        method: 'POST',
+        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
+      });
+    case 'extract_todo_items':
+      return request('/api/intelligence/extract-todos', {
+        method: 'POST',
+        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
+      });
+    case 'get_app_category_overview':
+      return request('/api/intelligence/app-category-overview');
+    case 'reclassify_app_history':
+      return request('/api/intelligence/reclassify-history', {
+        method: 'POST',
+        body: JSON.stringify({ appName: payload.appName, category: payload.category }),
+      });
+    // ---- 系统状态 API ----
+    case 'is_screen_locked':
+      return request('/api/system/is-screen-locked');
+    case 'is_work_time':
+      return request('/api/system/is-work-time');
+    case 'check_permissions':
+      return request('/api/system/check-permissions');
+    case 'take_screenshot':
+      return request('/api/system/take-screenshot', { method: 'POST' });
+    case 'run_ocr':
+      return request('/api/system/run-ocr', {
+        method: 'POST',
+        body: JSON.stringify({ imagePath: payload.imagePath }),
+      });
+    case 'check_ocr_available':
+      return request('/api/system/ocr-available');
+    case 'get_ocr_install_guide':
+      return { available: true, guide: '安装 PaddleOCR: pip install paddleocr paddlepaddle' };
+    case 'search_memory':
+      return request('/api/assistant/search-memory', {
+        method: 'POST',
+        body: JSON.stringify({ query: payload.query, limit: payload.limit ?? 8 }),
+      });
+    case 'ask_memory':
+      return request('/api/assistant/chat', {
+        method: 'POST',
+        body: JSON.stringify({ question: payload.question, locale: payload.locale ?? null }),
+      });
+    case 'start_recording':
+    case 'stop_recording':
+      return emitRecordingState([true, false]);
+    case 'get_update_settings':
+      return request('/api/runtime/should-check-updates');
+    case 'save_update_settings':
+      return request('/api/runtime/update-last-check-time', { method: 'POST' });
     default:
       throw new Error(`invoke not implemented: ${command}`);
   }

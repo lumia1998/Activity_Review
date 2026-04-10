@@ -3,9 +3,11 @@ node_modules/
 
 # Build output
 dist/
-src-tauri/target/
 test_uia/target/
 test_uia/*.txt
+
+# Generated icons
+public/generated-icons/
 
 # IDE
 .idea/
@@ -32,10 +34,6 @@ data/
 *.db-journal
 screenshots/
 
-# Tauri
-src-tauri/target/
-src-tauri/WixTools/
-
 # Python
 __pycache__/
 *.pyc
@@ -47,5 +45,4 @@ venv/
 # Project docs (local only)
 plan-*.md
 TEST_REPORT_*.md
-src-tauri/icons.backup/
 .worktrees/

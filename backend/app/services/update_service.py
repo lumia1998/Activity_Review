@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,16 @@ def _fetch_latest_release() -> dict[str, Any]:
         raise RuntimeError(f'GitHub release API request failed: {error.reason}') from error
 
 
+def _platform_label() -> str:
+    if sys.platform == 'win32':
+        return 'windows'
+    if sys.platform == 'darwin':
+        return 'macos'
+    if sys.platform.startswith('linux'):
+        return 'linux'
+    return sys.platform
+
+
 def check_github_update(current_version: str) -> dict[str, Any]:
     release = _fetch_latest_release()
     latest_version = str(release.get('tag_name') or '').strip() or str(current_version)
@@ -85,6 +96,9 @@ def check_github_update(current_version: str) -> dict[str, Any]:
         'releaseUrl': release_url,
         'publishedAt': published_at,
         'autoUpdateReady': False,
+        'platform': _platform_label(),
+        'manualOnly': True,
+        'notes': 'Python 重构版当前使用手动下载安装流程，不再依赖 Tauri 内建 updater。',
     }
 
 
@@ -110,10 +124,12 @@ def download_and_install_github_update(expected_version: str | None = None) -> d
     return {
         'started': False,
         'manual': True,
+        'platform': _platform_label(),
         'releaseUrl': release_info.get('releaseUrl') or RELEASES_PAGE_URL,
         'version': release_info.get('latestVersion') or expected_version,
+        'message': '当前版本使用手动下载更新包流程。',
     }
 
 
 def quit_app_for_update() -> bool:
-    return True
+    raise SystemExit(0)

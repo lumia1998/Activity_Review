@@ -11,6 +11,13 @@ from .data_service import data_dir_path, get_activity, get_connection, initializ
 RUNTIME_STATE_FILE = 'runtime_state.json'
 DEFAULT_ACTIVITY_DURATION = 20
 
+# 上一次截图哈希（用于空闲检测）
+_last_screenshot_hash: str | None = None
+# 上一次截图时间（用于间隔截图策略）
+_last_screenshot_timestamp: int = 0
+# 上一次活动上下文（用于检测应用切换）
+_last_activity_context: str | None = None
+
 _RUNTIME_STATE: dict[str, Any] = {
     'is_recording': True,
     'is_paused': False,
@@ -71,21 +78,141 @@ def _normalize_text(value: Any, fallback: str = '') -> str:
     return text or fallback
 
 
+def _try_capture_screenshot() -> str | None:
+    """尝试捕获截图，返回截图路径或 None"""
+    try:
+        from .screenshot_service import capture_screenshot
+        result = capture_screenshot()
+        if result:
+            return result.get('path')
+    except Exception:
+        pass
+    return None
+
+
+def _try_perform_ocr(image_path: str | None) -> str | None:
+    """尝试对截图执行 OCR，返回过滤后的文本"""
+    if not image_path:
+        return None
+    try:
+        from .ocr_service import perform_ocr, filter_sensitive_text
+        raw_text = perform_ocr(image_path)
+        if raw_text:
+            return filter_sensitive_text(raw_text)
+    except Exception:
+        pass
+    return None
+
+
+def _auto_classify_app(app_name: str, window_title: str | None, executable_path: str | None) -> str | None:
+    """自动分类应用，返回分类名或 None（如果前端已提供分类）"""
+    try:
+        from .app_classifier_service import classify_app
+        config = load_config()
+        rules = config.get('app_category_rules') or []
+        return classify_app(app_name, window_title, executable_path, rules)
+    except Exception:
+        return None
+
+
+def _check_idle() -> bool:
+    """检查是否空闲（键盘鼠标空闲或屏幕内容无变化）"""
+    try:
+        from .idle_service import is_user_idle, get_idle_seconds
+        if is_user_idle():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _check_screen_locked() -> bool:
+    """检查屏幕是否锁定"""
+    try:
+        from .idle_service import is_screen_locked
+        return is_screen_locked()
+    except Exception:
+        return False
+
+
+def _screenshot_interval_seconds(storage_config: dict[str, Any]) -> int:
+    value = storage_config.get('screenshot_interval_seconds')
+    try:
+        return max(30, int(value or 180))
+    except (TypeError, ValueError):
+        return 180
+
+
+def _should_capture_screenshot(current_context: str, now_ts: int, storage_config: dict[str, Any]) -> bool:
+    interval_seconds = _screenshot_interval_seconds(storage_config)
+    if _last_activity_context is None:
+        return True
+    if current_context != _last_activity_context:
+        return True
+    return now_ts - _last_screenshot_timestamp >= interval_seconds
+
+
 def capture_activity_tick(payload: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    global _last_screenshot_hash, _last_screenshot_timestamp, _last_activity_context
+
     payload = payload or {}
     if _RUNTIME_STATE.get('is_paused'):
+        return None
+
+    # 检查屏幕锁定
+    if _check_screen_locked():
+        return None
+
+    # 检查空闲状态
+    if _check_idle():
         return None
 
     app_name = _normalize_text(payload.get('appName'), 'Activity Review')
     window_title = _normalize_text(payload.get('windowTitle'), app_name)
     browser_url = _normalize_text(payload.get('browserUrl')) or None
     executable_path = _normalize_text(payload.get('executablePath')) or None
-    category = _normalize_text(payload.get('category'), 'development')
+    category = _normalize_text(payload.get('category'), '') or None
     semantic_category = _normalize_text(payload.get('semanticCategory')) or None
+
+    # 自动分类（如果前端没提供分类）
+    if not category:
+        category = _auto_classify_app(app_name, window_title, executable_path) or 'other'
 
     duration = int(payload.get('duration') or DEFAULT_ACTIVITY_DURATION)
     now_ts = int(datetime.now().timestamp())
     _RUNTIME_STATE['main_window_visible'] = False
+
+    # 检测应用切换，切换时捕获截图
+    current_context = f'{app_name}|{window_title}'
+
+    screenshot_path = None
+    ocr_text = None
+    config = load_config()
+    storage_config = config.get('storage') or {}
+    screenshots_enabled = storage_config.get('screenshots_enabled', True)
+    ocr_enabled = storage_config.get('ocr_enabled', True)
+    should_capture = screenshots_enabled and _should_capture_screenshot(current_context, now_ts, storage_config)
+
+    if should_capture:
+        try:
+            from .screenshot_service import capture_screenshot, is_idle_by_screenshot
+            screenshot_result = capture_screenshot()
+            if screenshot_result:
+                screenshot_path = screenshot_result.get('path')
+                current_hash = screenshot_result.get('hash', '')
+                if is_idle_by_screenshot(current_hash, _last_screenshot_hash):
+                    _last_screenshot_hash = current_hash
+                    _last_activity_context = current_context
+                    return None
+                _last_screenshot_hash = current_hash
+                _last_screenshot_timestamp = now_ts
+        except Exception:
+            screenshot_path = None
+
+        if screenshot_path and ocr_enabled:
+            ocr_text = _try_perform_ocr(screenshot_path)
+
+    _last_activity_context = current_context
 
     initialize_database()
     with get_connection() as connection:
@@ -136,9 +263,10 @@ def capture_activity_tick(payload: dict[str, Any] | None = None) -> dict[str, An
                 executable_path,
                 semantic_category,
                 semantic_confidence
-            ) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (now_ts, app_name, window_title, category, duration, browser_url, executable_path, semantic_category, None),
+            (now_ts, app_name, window_title, screenshot_path, ocr_text, category, duration,
+             browser_url, executable_path, semantic_category, None),
         )
         connection.commit()
         activity_id = int(cursor.lastrowid)

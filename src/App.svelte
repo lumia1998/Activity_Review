@@ -8,6 +8,7 @@
   import Timeline from './routes/timeline/Timeline.svelte';
   import Summary from './routes/timeline/Summary.svelte';
   import Report from './routes/report/Report.svelte';
+  import Intelligence from './routes/intelligence/Intelligence.svelte';
   import Ask from './routes/ask/Ask.svelte';
   import Settings from './routes/settings/Settings.svelte';
   import About from './routes/about/About.svelte';
@@ -101,6 +102,7 @@
     '/': Overview,
     '/timeline': Timeline,
     '/timeline/summary': Summary,
+    '/timeline/intelligence': Intelligence,
     '/report': Report,
     '/ask': Ask,
     '/settings': Settings,

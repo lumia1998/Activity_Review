@@ -185,7 +185,7 @@ def test_model_connection(model_config: dict[str, Any] | None = None) -> dict[st
     }
 
 
-def chat_work_assistant(question: str, history: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def chat_work_assistant(question: str, history: list[dict[str, Any]] | None = None, locale: str | None = None) -> dict[str, Any]:
     trimmed = (question or '').strip()
     if not trimmed:
         return {
@@ -203,7 +203,53 @@ def chat_work_assistant(question: str, history: list[dict[str, Any]] | None = No
     hourly = get_hourly_summaries(today)
     report = get_report(today)
 
-    answer_lines = [f"基于当前工作记录，我先给你结论：{trimmed} 相关的信息已整理如下。", ""]
+    # 构建上下文文本
+    context_parts = []
+    context_parts.append(f'日期: {today}')
+    context_parts.append(f'活动记录数: {len(timeline)}')
+
+    if timeline:
+        for item in timeline[:10]:
+            app = item.get('app_name') or '未知'
+            title = (item.get('window_title') or '无标题')[:60]
+            dur = _format_duration(item.get('duration'))
+            context_parts.append(f'- {app} / {title} / {dur}')
+
+    if hourly:
+        for s in hourly[:8]:
+            context_parts.append(f'{int(s.get("hour", 0)):02d}:00 - {s.get("summary", "无摘要")}')
+
+    if report:
+        context_parts.append(f'日报: {(report.get("content") or "")[:500]}')
+
+    if references:
+        context_parts.append('相关记录:')
+        for ref in references[:5]:
+            context_parts.append(f'- [{ref.get("sourceType")}] {ref.get("title")}: {ref.get("excerpt", "")[:100]}')
+
+    context_text = '\n'.join(context_parts)
+
+    # 尝试使用 AI 回答
+    normalized_locale = (locale or '').strip() or 'zh-CN'
+    try:
+        from .ai_service import ai_chat_assistant
+        ai_result = ai_chat_assistant(trimmed, context_text, history, normalized_locale)
+        if ai_result.get('usedAi') and ai_result.get('answer'):
+            # AI 成功回答，附加引用
+            ai_answer = ai_result['answer']
+            return {
+                'answer': ai_answer,
+                'references': references,
+                'usedAi': True,
+                'modelName': ai_result.get('model'),
+                'toolLabels': ['记忆检索', 'AI 对话'],
+                'cards': [],
+            }
+    except Exception:
+        pass
+
+    # AI 不可用时的回退：本地模板回答
+    answer_lines = [f"基于当前工作记录，{trimmed} 相关的信息已整理如下。", ""]
 
     if references:
         answer_lines.append('### 相关依据')
