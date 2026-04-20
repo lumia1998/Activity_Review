@@ -1,10 +1,14 @@
 import sys
 import os
+import multiprocessing
 import traceback
 import logging
 
+sys.setrecursionlimit(10000)
+multiprocessing.freeze_support()
+
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s: %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),

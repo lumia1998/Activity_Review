@@ -5,6 +5,7 @@ import path from 'path';
 export default defineConfig({
   plugins: [svelte()],
   clearScreen: false,
+  base: './',
   server: {
     port: 5173,
     strictPort: true,

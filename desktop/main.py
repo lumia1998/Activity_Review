@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import platform
+import multiprocessing
+import os
 import sys
 import threading
 import time
@@ -56,49 +56,39 @@ API_BASE = f'{API_ROOT}/api'
 RECORDER_INTERVAL = 20  # seconds between activity ticks
 _WINDOW_APIS: dict[str, 'DesktopApi'] = {}
 
-# ── Embedded backend (uvicorn) ──────────────────────────────────────────────
+# ── Embedded backend (multiprocessing) ────────────────────────────────────
 
-_backend_stop_event = threading.Event()
+_backend_process: 'multiprocessing.Process | None' = None
 
 
-def _start_backend() -> threading.Thread:
-    """Launch the FastAPI backend in a daemon thread via uvicorn."""
+def _run_backend_server() -> None:
+    """Entry point for the backend child process."""
+    import asyncio
+    import platform
+    if platform.system() == 'Windows':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     import uvicorn
+    uvicorn.run('backend.app.main:app', host='127.0.0.1', port=8000, log_level='info')
 
-    def _run() -> None:
-        # Windows requires the selector event loop for uvicorn
-        if platform.system() == 'Windows':
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-        config = uvicorn.Config(
-            'backend.app.main:app',
-            host='127.0.0.1',
-            port=8000,
-            log_level='info',
-        )
-        server = uvicorn.Server(config)
+def _start_backend() -> multiprocessing.Process:
+    """Launch the FastAPI backend in a separate process."""
+    proc = multiprocessing.Process(target=_run_backend_server, daemon=True, name='uvicorn-backend')
+    proc.start()
+    global _backend_process
+    _backend_process = proc
+    return proc
 
-        # Patch the server so we can stop it from outside
-        original_on_tick = server.on_tick if hasattr(server, 'on_tick') else None
 
-        async def _watch_stop() -> None:
-            while not _backend_stop_event.is_set():
-                await asyncio.sleep(0.5)
-            server.should_exit = True
-
-        # Override startup to also schedule the stop-watcher
-        _original_startup = server.startup
-
-        async def _patched_startup(sockets=None):
-            await _original_startup(sockets=sockets)
-            asyncio.ensure_future(_watch_stop())
-
-        server.startup = _patched_startup
-        server.run()
-
-    t = threading.Thread(target=_run, name='uvicorn-backend', daemon=True)
-    t.start()
-    return t
+def _stop_backend() -> None:
+    """Terminate the backend process."""
+    global _backend_process
+    if _backend_process is not None and _backend_process.is_alive():
+        _backend_process.terminate()
+        _backend_process.join(timeout=5)
+        if _backend_process.is_alive():
+            _backend_process.kill()
+    _backend_process = None
 
 
 def _wait_for_backend(timeout: int = 30) -> bool:
@@ -113,8 +103,8 @@ def _wait_for_backend(timeout: int = 30) -> bool:
 
 
 def resolve_start_url() -> str:
-    if DIST_INDEX.exists():
-        return DIST_INDEX.as_uri()
+    if _is_frozen() or DIST_INDEX.exists():
+        return f'{API_ROOT}/'
     return FRONTEND_DEV_URL
 
 
@@ -510,7 +500,7 @@ def _bootstrap(window: webview.Window, desktop_api: DesktopApi) -> None:
 
     def on_closing(*_args: Any) -> bool:
         stop_event.set()
-        _backend_stop_event.set()  # signal uvicorn to shut down
+        _stop_backend()
         tray.stop()
         if desktop_api._single_instance:
             desktop_api._single_instance.close()
@@ -546,16 +536,12 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 
     # ── Start embedded backend ──────────────────────────────────────────
-    # In frozen (PyInstaller) mode we always start the backend ourselves.
-    # In dev mode we also start it so the separate bat file is no longer
-    # required, but if the backend is already running we skip the launch.
-    backend_thread: threading.Thread | None = None
     if not _api_ping():
         logger.info('Starting embedded backend ...')
-        backend_thread = _start_backend()
+        _start_backend()
         if not _wait_for_backend(timeout=30):
             logger.critical('Cannot start backend – aborting')
-            _backend_stop_event.set()
+            _stop_backend()
             return
     else:
         logger.info('Backend already running, skipping embedded launch')
@@ -566,7 +552,7 @@ def main() -> None:
     single_instance = SingleInstanceManager(on_activate=desktop_api._activate_existing_window)
     if not single_instance.acquire():
         notify_existing_instance()
-        _backend_stop_event.set()
+        _stop_backend()
         return
     desktop_api._single_instance = single_instance
 
@@ -579,12 +565,14 @@ def main() -> None:
         min_size=(800, 600),
     )
     desktop_api.attach_window(window)
+
+    # Disable Chromium accessibility tree to prevent .NET AccessibilityObject recursion
+    os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--disable-features=msSmartScreenProtection --force-renderer-accessibility=disabled'
+
     webview.start(lambda: _bootstrap(window, desktop_api))
 
     # ── Cleanup ─────────────────────────────────────────────────────────
-    _backend_stop_event.set()
-    if backend_thread is not None:
-        backend_thread.join(timeout=5)
+    _stop_backend()
     logger.info('Application exited')
 
 
