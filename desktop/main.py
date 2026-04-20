@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import platform
+import sys
 import threading
 import time
 import urllib.request
@@ -23,8 +26,28 @@ from .windows import WindowState
 logger = logging.getLogger(__name__)
 
 FRONTEND_DEV_URL = 'http://127.0.0.1:5173'
+
+# ── Path resolution (dev vs PyInstaller) ────────────────────────────────────
+
+def _is_frozen() -> bool:
+    return getattr(sys, 'frozen', False)
+
+
+def _get_base_path() -> Path:
+    """Return the base path for bundled resources.
+
+    When running from a PyInstaller bundle ``sys._MEIPASS`` points to the
+    temporary extraction directory.  In development mode we fall back to the
+    normal project root (one level above this file).
+    """
+    if _is_frozen():
+        return Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    return Path(__file__).resolve().parents[1]
+
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DIST_INDEX = PROJECT_ROOT / 'dist' / 'index.html'
+_BASE_PATH = _get_base_path()
+DIST_INDEX = _BASE_PATH / 'dist' / 'index.html'
 RUNTIME_STATE_PATH = data_dir_path() / 'runtime_state.json'
 WINDOW_LABEL = 'main'
 
@@ -32,6 +55,61 @@ API_ROOT = 'http://127.0.0.1:8000'
 API_BASE = f'{API_ROOT}/api'
 RECORDER_INTERVAL = 20  # seconds between activity ticks
 _WINDOW_APIS: dict[str, 'DesktopApi'] = {}
+
+# ── Embedded backend (uvicorn) ──────────────────────────────────────────────
+
+_backend_stop_event = threading.Event()
+
+
+def _start_backend() -> threading.Thread:
+    """Launch the FastAPI backend in a daemon thread via uvicorn."""
+    import uvicorn
+
+    def _run() -> None:
+        # Windows requires the selector event loop for uvicorn
+        if platform.system() == 'Windows':
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+        config = uvicorn.Config(
+            'backend.app.main:app',
+            host='127.0.0.1',
+            port=8000,
+            log_level='info',
+        )
+        server = uvicorn.Server(config)
+
+        # Patch the server so we can stop it from outside
+        original_on_tick = server.on_tick if hasattr(server, 'on_tick') else None
+
+        async def _watch_stop() -> None:
+            while not _backend_stop_event.is_set():
+                await asyncio.sleep(0.5)
+            server.should_exit = True
+
+        # Override startup to also schedule the stop-watcher
+        _original_startup = server.startup
+
+        async def _patched_startup(sockets=None):
+            await _original_startup(sockets=sockets)
+            asyncio.ensure_future(_watch_stop())
+
+        server.startup = _patched_startup
+        server.run()
+
+    t = threading.Thread(target=_run, name='uvicorn-backend', daemon=True)
+    t.start()
+    return t
+
+
+def _wait_for_backend(timeout: int = 30) -> bool:
+    """Block until the backend /health endpoint responds OK."""
+    for _ in range(timeout):
+        if _api_ping():
+            logger.info('Backend is ready')
+            return True
+        time.sleep(1)
+    logger.error('Backend did not become ready within %ds', timeout)
+    return False
 
 
 def resolve_start_url() -> str:
@@ -42,7 +120,7 @@ def resolve_start_url() -> str:
 
 def resolve_version() -> str:
     try:
-        return version('acticity-review')
+        return version('activity-review')
     except PackageNotFoundError:
         return '0.1.0'
 
@@ -432,6 +510,7 @@ def _bootstrap(window: webview.Window, desktop_api: DesktopApi) -> None:
 
     def on_closing(*_args: Any) -> bool:
         stop_event.set()
+        _backend_stop_event.set()  # signal uvicorn to shut down
         tray.stop()
         if desktop_api._single_instance:
             desktop_api._single_instance.close()
@@ -466,11 +545,28 @@ def _bootstrap(window: webview.Window, desktop_api: DesktopApi) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 
+    # ── Start embedded backend ──────────────────────────────────────────
+    # In frozen (PyInstaller) mode we always start the backend ourselves.
+    # In dev mode we also start it so the separate bat file is no longer
+    # required, but if the backend is already running we skip the launch.
+    backend_thread: threading.Thread | None = None
+    if not _api_ping():
+        logger.info('Starting embedded backend ...')
+        backend_thread = _start_backend()
+        if not _wait_for_backend(timeout=30):
+            logger.critical('Cannot start backend – aborting')
+            _backend_stop_event.set()
+            return
+    else:
+        logger.info('Backend already running, skipping embedded launch')
+
+    # ── Desktop window ──────────────────────────────────────────────────
     window_state = WindowState(label=WINDOW_LABEL)
     desktop_api = DesktopApi(app_version=resolve_version(), window_state=window_state)
     single_instance = SingleInstanceManager(on_activate=desktop_api._activate_existing_window)
     if not single_instance.acquire():
         notify_existing_instance()
+        _backend_stop_event.set()
         return
     desktop_api._single_instance = single_instance
 
@@ -484,6 +580,12 @@ def main() -> None:
     )
     desktop_api.attach_window(window)
     webview.start(lambda: _bootstrap(window, desktop_api))
+
+    # ── Cleanup ─────────────────────────────────────────────────────────
+    _backend_stop_event.set()
+    if backend_thread is not None:
+        backend_thread.join(timeout=5)
+    logger.info('Application exited')
 
 
 if __name__ == '__main__':
