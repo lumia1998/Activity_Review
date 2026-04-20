@@ -27,7 +27,6 @@ class TrayController:
     on_quit: MenuAction
     on_toggle_recording: MenuAction | None = None
     on_toggle_lightweight: MenuAction | None = None
-    on_toggle_avatar: MenuAction | None = None
     get_state: StateProvider | None = None
     icon: object | None = None
     thread: Thread | None = None
@@ -61,7 +60,6 @@ class TrayController:
                 'is_recording': True,
                 'is_paused': False,
                 'lightweight_mode': False,
-                'avatar_enabled': True,
             }
         try:
             state = self.get_state() or {}
@@ -71,21 +69,18 @@ class TrayController:
             'is_recording': bool(state.get('is_recording', True)),
             'is_paused': bool(state.get('is_paused', False)),
             'lightweight_mode': bool(state.get('lightweight_mode', False)),
-            'avatar_enabled': bool(state.get('avatar_enabled', True)),
         }
 
     def _build_menu(self) -> object:
         state = self._state()
         recording_text = '继续录制' if state['is_paused'] else '暂停录制'
         lightweight_text = '关闭轻量模式' if state['lightweight_mode'] else '开启轻量模式'
-        avatar_text = '隐藏桌宠' if state['avatar_enabled'] else '显示桌宠'
         return pystray.Menu(
             self._menu_item('显示主界面', self.on_show),
             self._menu_item('隐藏主界面', self.on_hide),
             pystray.Menu.SEPARATOR,
             self._menu_item(recording_text, self.on_toggle_recording, checked=lambda _: not state['is_paused']),
             self._menu_item(lightweight_text, self.on_toggle_lightweight, checked=lambda _: state['lightweight_mode']),
-            self._menu_item(avatar_text, self.on_toggle_avatar, checked=lambda _: state['avatar_enabled']),
             pystray.Menu.SEPARATOR,
             self._menu_item('退出', self.on_quit),
         )
@@ -110,7 +105,7 @@ class TrayController:
                 self.refresh_menu()
                 return True
 
-            self.icon = pystray.Icon('acticity-review', _build_icon(), 'Acticity Review', self._build_menu())
+            self.icon = pystray.Icon('acticity-review', _build_icon(), 'Activity Review', self._build_menu())
             self.thread = Thread(target=self.icon.run, daemon=True)
             self.thread.start()
             self.visible = True
@@ -146,7 +141,6 @@ def create_tray_controller(
     on_quit: MenuAction,
     on_toggle_recording: MenuAction | None = None,
     on_toggle_lightweight: MenuAction | None = None,
-    on_toggle_avatar: MenuAction | None = None,
     get_state: StateProvider | None = None,
 ) -> TrayController:
     return TrayController(
@@ -155,6 +149,5 @@ def create_tray_controller(
         on_quit=on_quit,
         on_toggle_recording=on_toggle_recording,
         on_toggle_lightweight=on_toggle_lightweight,
-        on_toggle_avatar=on_toggle_avatar,
         get_state=get_state,
     )

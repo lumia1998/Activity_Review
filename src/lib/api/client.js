@@ -1,5 +1,4 @@
 import { emitLocalEvent } from './events.js';
-import { emitTo } from '../desktop/bridge.js';
 
 const API_BASE = window.__ACTICITY_API_BASE__ || 'http://127.0.0.1:8000';
 const AI_PROVIDERS = [
@@ -102,12 +101,6 @@ function emitRecordingState(state) {
     isPaused: Boolean(state[1]),
   });
   return state;
-}
-
-async function syncAvatarState() {
-  const avatarState = await request('/api/runtime/avatar-state');
-  await emitTo('avatar', 'avatar-state-changed', avatarState);
-  return avatarState;
 }
 
 function getBrowserPlatform() {
@@ -263,12 +256,10 @@ export async function invoke(command, payload = {}) {
     case 'get_runtime_platform':
       return getBrowserPlatform();
     case 'capture_activity_tick': {
-      const activity = await request('/api/runtime/activity-tick', {
+      return request('/api/runtime/activity-tick', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      await syncAvatarState();
-      return activity;
     }
     case 'get_recording_state':
       return emitRecordingState(await request('/api/runtime/recording-state'));
@@ -277,7 +268,6 @@ export async function invoke(command, payload = {}) {
         method: 'POST',
       });
       emitRecordingState(state);
-      await syncAvatarState();
       return state;
     }
     case 'resume_recording': {
@@ -285,7 +275,6 @@ export async function invoke(command, payload = {}) {
         method: 'POST',
       });
       emitRecordingState(state);
-      await syncAvatarState();
       return state;
     }
     case 'get_platform':
@@ -296,24 +285,6 @@ export async function invoke(command, payload = {}) {
       return request('/api/config/open-data-dir', {
         method: 'POST',
       });
-    case 'get_avatar_state':
-      return syncAvatarState();
-    case 'save_avatar_position': {
-      const position = await request('/api/runtime/avatar-position', {
-        method: 'POST',
-        body: JSON.stringify({ x: payload.x, y: payload.y }),
-      });
-      await syncAvatarState();
-      return position;
-    }
-    case 'show_main_window': {
-      const result = await request('/api/runtime/show-main-window', {
-        method: 'POST',
-        body: JSON.stringify({ sourceWindowLabel: payload.sourceWindowLabel ?? null }),
-      });
-      await syncAvatarState();
-      return result;
-    }
     case 'set_app_category_rule':
       return request('/api/config/app-category-rule', {
         method: 'POST',
@@ -367,34 +338,6 @@ export async function invoke(command, payload = {}) {
       return request('/api/runtime/is-autostart-enabled');
     case 'should_check_updates':
       return request('/api/runtime/should-check-updates');
-    // ---- 工作智能 API ----
-    case 'get_work_sessions':
-      return request('/api/intelligence/work-sessions', {
-        method: 'POST',
-        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
-      });
-    case 'recognize_work_intents':
-      return request('/api/intelligence/recognize-intents', {
-        method: 'POST',
-        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
-      });
-    case 'generate_weekly_review':
-      return request('/api/intelligence/weekly-review', {
-        method: 'POST',
-        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
-      });
-    case 'extract_todo_items':
-      return request('/api/intelligence/extract-todos', {
-        method: 'POST',
-        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
-      });
-    case 'get_app_category_overview':
-      return request('/api/intelligence/app-category-overview');
-    case 'reclassify_app_history':
-      return request('/api/intelligence/reclassify-history', {
-        method: 'POST',
-        body: JSON.stringify({ appName: payload.appName, category: payload.category }),
-      });
     // ---- 系统状态 API ----
     case 'is_screen_locked':
       return request('/api/system/is-screen-locked');

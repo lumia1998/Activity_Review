@@ -30,7 +30,6 @@ Activity Review continuously records the apps you use, websites you visit, activ
 - You can jump from aggregate stats to concrete pages, titles, and screenshots
 - Supports Simplified Chinese, English, and Traditional Chinese UI, with daily reports generated and switched per current locale
 - Supports lightweight mode, hourly activity views, Markdown report export, and multi-display screenshot strategies
-- Includes `Desktop Avatar Beta` for lightweight presence feedback while you work
 
 > All data stays local by default. AI features are optional.
 
@@ -70,7 +69,6 @@ Activity Review is closer to a personal work-trace system:
 | Todo extraction | Pulls likely follow-up items from pages, titles, and context |
 | Daily report | Generates structured reports with history view, hourly activity summaries, Markdown export, and locale-aware report switching |
 | Dual response modes | Choose between stable templates and AI-enhanced output |
-| Desktop Avatar Beta | Shows lightweight state feedback such as working, reading, meeting, music, video, and generating |
 
 ### Privacy
 
@@ -102,14 +100,6 @@ The overview page combines total duration, work duration, browser usage, website
 
 The assistant answers directly from your local records and is useful for recap, summaries, and todo extraction.
 
-### Desktop Avatar Beta
-
-<img src="docs/桌宠.png" alt="Activity Review Desktop Avatar" width="220" />
-
-The desktop avatar floats on the desktop and gives lightweight state feedback instead of acting as a full information panel.
-
----
-
 ## Pages
 
 | Page | Purpose |
@@ -118,7 +108,7 @@ The desktop avatar floats on the desktop and gives lightweight state feedback in
 | **Timeline** | Replay windows, screenshots, OCR, and visited pages by time |
 | **Assistant** | Ask natural-language questions against your recorded work trail |
 | **Report** | Generate, review, switch, and export daily reports based on the current UI language |
-| **Settings** | Manage tracking, privacy, AI, avatar, lightweight mode, storage, and updates |
+| **Settings** | Manage tracking, privacy, AI, lightweight mode, storage, and updates |
 
 ---
 

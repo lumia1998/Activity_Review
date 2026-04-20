@@ -3,13 +3,10 @@ from pydantic import BaseModel
 
 from ..services.runtime_service import (
     capture_activity_tick,
-    get_avatar_state,
     get_recording_state,
     pause_recording,
     resume_recording,
-    save_avatar_position,
     set_dock_visibility,
-    show_main_window,
 )
 from ..services.update_service import (
     check_github_update,
@@ -35,15 +32,6 @@ class ActivityTickPayload(BaseModel):
     duration: int | None = None
     category: str | None = None
     semanticCategory: str | None = None
-
-
-class AvatarPositionPayload(BaseModel):
-    x: int
-    y: int
-
-
-class ShowMainWindowPayload(BaseModel):
-    sourceWindowLabel: str | None = None
 
 
 class DockVisibilityPayload(BaseModel):
@@ -73,21 +61,6 @@ async def resume() -> list[bool]:
 @router.post('/activity-tick')
 async def activity_tick(payload: ActivityTickPayload) -> dict | None:
     return capture_activity_tick(payload.model_dump())
-
-
-@router.get('/avatar-state')
-async def avatar_state() -> dict:
-    return get_avatar_state()
-
-
-@router.post('/avatar-position')
-async def avatar_position(payload: AvatarPositionPayload) -> dict:
-    return save_avatar_position(payload.x, payload.y)
-
-
-@router.post('/show-main-window')
-async def show_window(payload: ShowMainWindowPayload) -> bool:
-    return show_main_window(payload.sourceWindowLabel)
 
 
 @router.post('/set-dock-visibility')

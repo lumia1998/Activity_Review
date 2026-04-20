@@ -8,20 +8,15 @@
   import Timeline from './routes/timeline/Timeline.svelte';
   import Summary from './routes/timeline/Summary.svelte';
   import Report from './routes/report/Report.svelte';
-  import Intelligence from './routes/intelligence/Intelligence.svelte';
   import Ask from './routes/ask/Ask.svelte';
   import Settings from './routes/settings/Settings.svelte';
   import About from './routes/about/About.svelte';
-  import AvatarWindow from './routes/avatar/AvatarWindow.svelte';
   import { invoke, listen, getCurrentWebviewWindow } from '$lib/runtime.js';
   import { cache, getLocalDate } from './lib/stores/cache.js';
   import { applyLocaleToDocument, initializeLocale, locale } from '$lib/i18n/index.js';
   import { preloadAppIcons } from './lib/stores/iconCache.js';
-  import { runUpdateFlow } from './lib/utils/updater.js';
 
   const appWindow = getCurrentWebviewWindow();
-  const currentWindowLabel = appWindow.label;
-  const isAvatarWindow = currentWindowLabel === 'avatar';
 
   // 視窗拖拽（Linux WebKitGTK 不支援 -webkit-app-region: drag，改用桌面橋接 API）
   async function startDrag(e) {
@@ -102,7 +97,6 @@
     '/': Overview,
     '/timeline': Timeline,
     '/timeline/summary': Summary,
-    '/timeline/intelligence': Intelligence,
     '/report': Report,
     '/ask': Ask,
     '/settings': Settings,
@@ -186,10 +180,6 @@
   }
 
   onMount(() => {
-    if (isAvatarWindow) {
-      return () => {};
-    }
-
     initializeLocale();
     unsubscribeLocale = locale.subscribe((nextLocale) => {
       applyLocaleToDocument(nextLocale);
@@ -364,9 +354,6 @@
   });
 </script>
 
-{#if isAvatarWindow}
-  <AvatarWindow />
-{:else}
 <div class="flex h-screen overflow-hidden relative bg-[linear-gradient(180deg,#f8fafc_0%,#eef2ff_38%,#f8fafc_100%)] dark:bg-[linear-gradient(180deg,#020617_0%,#0f172a_44%,#020617_100%)]">
   <div class="pointer-events-none absolute inset-0 z-0 opacity-80">
     <div class="absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.14),transparent_62%)] dark:bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_62%)]"></div>
@@ -456,4 +443,3 @@
     <ConfirmDialog />
   </div>
 </div>
-{/if}

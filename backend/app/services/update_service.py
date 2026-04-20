@@ -59,7 +59,7 @@ def _fetch_latest_release() -> dict[str, Any]:
         LATEST_RELEASE_API,
         headers={
             'Accept': 'application/vnd.github+json',
-            'User-Agent': 'Acticity-Review-Python-Rebuild',
+            'User-Agent': 'Activity-Review-Python-Rebuild',
         },
     )
     try:

@@ -26,9 +26,7 @@ FRONTEND_DEV_URL = 'http://127.0.0.1:5173'
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DIST_INDEX = PROJECT_ROOT / 'dist' / 'index.html'
 RUNTIME_STATE_PATH = data_dir_path() / 'runtime_state.json'
-MAIN_WINDOW_LABEL = 'main'
-AVATAR_WINDOW_LABEL = 'avatar'
-WINDOW_LABEL = MAIN_WINDOW_LABEL
+WINDOW_LABEL = 'main'
 
 API_ROOT = 'http://127.0.0.1:8000'
 API_BASE = f'{API_ROOT}/api'
@@ -96,7 +94,6 @@ def _load_desktop_state() -> dict[str, bool]:
         'is_recording': bool(state.get('is_recording', True)),
         'is_paused': bool(state.get('is_paused', False)),
         'lightweight_mode': bool(config.get('lightweight_mode', False)),
-        'avatar_enabled': bool(config.get('avatar_enabled', True)),
     }
 
 
@@ -293,29 +290,6 @@ class DesktopApi:
         if self._tray_controller:
             self._tray_controller.refresh_menu()
 
-    def toggle_avatar(self) -> None:
-        """Toggle avatar visibility."""
-        config = load_config()
-        avatar_enabled = bool(config.get('avatar_enabled', True))
-        config['avatar_enabled'] = not avatar_enabled
-        if not config['avatar_enabled']:
-            config['break_reminder_enabled'] = False
-        save_config(config)
-        avatar_api = _WINDOW_APIS.get(AVATAR_WINDOW_LABEL)
-        if avatar_api and avatar_api.window:
-            try:
-                if config['avatar_enabled']:
-                    avatar_api.window.show()
-                    avatar_api.window_state.visible = True
-                else:
-                    avatar_api.window.hide()
-                    avatar_api.window_state.visible = False
-            except Exception:
-                pass
-        self.emitTo(AVATAR_WINDOW_LABEL, 'avatar-visibility-changed', {'visible': config['avatar_enabled']})
-        if self._tray_controller:
-            self._tray_controller.refresh_menu()
-
     _tray_controller: Any = None
 
     # ── pywebview API methods ────────────────────────────────────────────
@@ -335,13 +309,7 @@ class DesktopApi:
         return self.app_version
 
     def emitTo(self, label: str, event_name: str, payload: Any = None) -> bool:
-        if not label or label == self.currentWindowLabel:
-            self._dispatch_event(event_name, payload)
-            return True
-        target = _WINDOW_APIS.get(label)
-        if target is None:
-            return False
-        target._dispatch_event(event_name, payload)
+        self._dispatch_event(event_name, payload)
         return True
 
     def listenWindowEvent(self, event_name: str) -> bool:
@@ -417,36 +385,12 @@ class DesktopApi:
     def confirm(self, options: dict[str, Any] | None = None) -> bool:
         window = self._require_window()
         options = options or {}
-        title = str(options.get('title') or 'Acticity Review')
+        title = str(options.get('title') or 'Activity Review')
         message = str(options.get('message') or '')
         return bool(window.create_confirmation_dialog(title, message))
 
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
-
-def _create_avatar_window(avatar_api: DesktopApi) -> webview.Window:
-    runtime_state = _load_runtime_state()
-    config = load_config()
-    position = runtime_state.get('avatar_position') or {}
-    avatar_enabled = bool(config.get('avatar_enabled', True))
-    return webview.create_window(
-        title='Acticity Review Avatar',
-        url=resolve_start_url(),
-        js_api=avatar_api,
-        width=280,
-        height=280,
-        x=position.get('x'),
-        y=position.get('y'),
-        hidden=not avatar_enabled,
-        frameless=True,
-        easy_drag=False,
-        shadow=False,
-        focus=False,
-        on_top=True,
-        background_color='#000000',
-        transparent=True,
-    )
-
 
 def _bootstrap(window: webview.Window, desktop_api: DesktopApi) -> None:
     stop_event = desktop_api._stop_event
@@ -456,7 +400,6 @@ def _bootstrap(window: webview.Window, desktop_api: DesktopApi) -> None:
         on_quit=window.destroy,
         on_toggle_recording=desktop_api.toggle_recording,
         on_toggle_lightweight=desktop_api.toggle_lightweight_mode,
-        on_toggle_avatar=desktop_api.toggle_avatar,
         get_state=_load_desktop_state,
     )
     desktop_api._tray_controller = tray
@@ -525,8 +468,6 @@ def main() -> None:
 
     window_state = WindowState(label=WINDOW_LABEL)
     desktop_api = DesktopApi(app_version=resolve_version(), window_state=window_state)
-    avatar_state = WindowState(label=AVATAR_WINDOW_LABEL, visible=bool(load_config().get('avatar_enabled', True)))
-    avatar_api = DesktopApi(app_version=resolve_version(), window_state=avatar_state)
     single_instance = SingleInstanceManager(on_activate=desktop_api._activate_existing_window)
     if not single_instance.acquire():
         notify_existing_instance()
@@ -534,21 +475,14 @@ def main() -> None:
     desktop_api._single_instance = single_instance
 
     window = webview.create_window(
-        title='Acticity Review',
+        title='Activity Review',
         url=resolve_start_url(),
         js_api=desktop_api,
         width=1000,
         height=700,
         min_size=(800, 600),
     )
-    avatar_window = _create_avatar_window(avatar_api)
     desktop_api.attach_window(window)
-    avatar_api.attach_window(avatar_window)
-
-    def on_avatar_loaded(*_args: Any) -> None:
-        avatar_api.inject_bridge()
-
-    avatar_window.events.loaded += on_avatar_loaded
     webview.start(lambda: _bootstrap(window, desktop_api))
 
 

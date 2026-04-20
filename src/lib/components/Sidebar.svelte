@@ -1,6 +1,6 @@
 <script>
   import { link, location } from 'svelte-spa-router';
-  import { invoke, emitTo } from '$lib/runtime.js';
+  import { invoke } from '$lib/runtime.js';
   import { createEventDispatcher } from 'svelte';
   import { getLocaleShortLabel, locale, setLocale, t } from '$lib/i18n/index.js';
   import { showToast } from '$lib/stores/toast.js';
@@ -16,7 +16,6 @@
   const navItems = [
     { path: '/', labelKey: 'sidebar.nav.overview', icon: 'home' },
     { path: '/timeline', labelKey: 'sidebar.nav.timeline', icon: 'timeline' },
-    { path: '/timeline/intelligence', labelKey: 'sidebar.nav.intelligence', icon: 'sparkles' },
     { path: '/report', labelKey: 'sidebar.nav.report', icon: 'report' },
     { path: '/ask', labelKey: 'sidebar.nav.ask', icon: 'ask' },
     { path: '/settings', labelKey: 'sidebar.nav.settings', icon: 'settings' },
@@ -47,11 +46,8 @@
   }
 
   function selectLocale(nextLocale) {
-    const normalizedLocale = setLocale(nextLocale);
+    setLocale(nextLocale);
     localeMenuOpen = false;
-    emitTo('avatar', 'locale-changed', normalizedLocale).catch((error) => {
-      console.warn('同步桌宠语言失败:', error);
-    });
   }
 
   function handleWindowClick(event) {
