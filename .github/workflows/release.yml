@@ -1,23 +1,16 @@
-name: Release
+name: Build & Release
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
-  build-desktop-assets:
+  build-windows:
+    runs-on: windows-latest
     permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-          - platform: ubuntu-22.04
-          - platform: windows-latest
-
-    runs-on: ${{ matrix.platform }}
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,75 +24,159 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Install Python dependencies
-        run: python -m pip install -e .
-
       - name: Run frontend tests
         run: node --test
 
-      - name: Build application
+      - name: Build frontend
         run: npm run build
 
       - name: Verify frontend dist
         shell: bash
-        run: |
-          set -euo pipefail
-          test -f dist/index.html
+        run: test -f dist/index.html
 
-      - name: Package desktop source bundle
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller uvicorn fastapi pydantic httptools websockets mss pillow anyio sniffio h11
+
+      - name: Package Python backend
+        run: pyinstaller --clean --noconfirm backend_only.spec --distpath build_output --workpath build_temp
+
+      - name: Verify backend exe
         shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-from pathlib import Path
-import shutil
-import zipfile
+        run: test -f build_output/ActivityReviewBackend/ActivityReviewBackend.exe
 
-root = Path.cwd()
-out_dir = root / 'release-bundle'
-out_dir.mkdir(exist_ok=True)
-archive = out_dir / f"activity-review-{root.joinpath('package.json').read_text(encoding='utf-8').split('"version": "')[1].split('"')[0]}-{Path('${{ matrix.platform }}')}.zip"
+      - name: Install Electron dependencies
+        working-directory: electron
+        run: npm ci
 
-include_paths = [
-    'backend',
-    'desktop',
-    'dist',
-    'src',
-    'docs',
-    'pyproject.toml',
-    'package.json',
-    'README.md',
-    'README.en.md',
-    'README.tw.md',
-]
+      - name: Build Electron installer
+        working-directory: electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish never
 
-with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zf:
-    for item in include_paths:
-        path = root / item
-        if not path.exists():
-            continue
-        if path.is_file():
-            zf.write(path, path.relative_to(root))
-            continue
-        for child in path.rglob('*'):
-            if child.is_file():
-                zf.write(child, child.relative_to(root))
-PY
-
-      - name: Upload release assets
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: release-assets-${{ matrix.platform }}-${{ strategy.job-index }}
-          path: release-bundle/*.zip
-          if-no-files-found: error
+          name: windows-installer
+          path: |
+            electron/dist/*.exe
+            electron/dist/*.zip
+          if-no-files-found: warn
+
+  build-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller uvicorn fastapi pydantic httptools websockets mss pillow anyio sniffio h11
+
+      - name: Package Python backend
+        run: pyinstaller --clean --noconfirm backend_only.spec --distpath build_output --workpath build_temp
+
+      - name: Install Electron dependencies
+        working-directory: electron
+        run: npm ci
+
+      - name: Build Electron app
+        working-directory: electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --mac --publish never
+
+      - name: Upload macOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: |
+            electron/dist/*.dmg
+            electron/dist/*.zip
+          if-no-files-found: warn
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller uvicorn fastapi pydantic httptools websockets mss pillow anyio sniffio h11
+
+      - name: Package Python backend
+        run: pyinstaller --clean --noconfirm backend_only.spec --distpath build_output --workpath build_temp
+
+      - name: Install Electron dependencies
+        working-directory: electron
+        run: npm ci
+
+      - name: Build Electron app
+        working-directory: electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux --publish never
+
+      - name: Upload Linux app
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-app
+          path: |
+            electron/dist/*.AppImage
+            electron/dist/*.deb
+          if-no-files-found: warn
 
   publish-release:
-    needs: build-desktop-assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -111,7 +188,6 @@ PY
         uses: actions/download-artifact@v4
         with:
           path: all-artifacts
-          pattern: "release-assets-*"
           merge-multiple: true
 
       - name: Extract changelog
@@ -120,21 +196,19 @@ PY
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           BODY=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
-
           if [[ -z "$BODY" ]]; then
             BODY="版本 ${VERSION} 更新"
           fi
-
           printf '%s\n' "$BODY" > release_notes.md
 
-      - name: Create or update GitHub Release
+      - name: Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
           allowUpdates: true
-          name: "Activity_Review ${{ github.ref_name }}"
+          name: "Activity Review ${{ github.ref_name }}"
           bodyFile: release_notes.md
           token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: "all-artifacts/**/*.zip"
+          artifacts: "all-artifacts/**/*"
           artifactErrorsFailBuild: false
           replacesArtifacts: true
           makeLatest: legacy

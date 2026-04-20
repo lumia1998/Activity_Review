@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+build_output/
+build_temp/
 test_uia/target/
 test_uia/*.txt
 
@@ -41,6 +43,7 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 
 # Project docs (local only)
 plan-*.md
