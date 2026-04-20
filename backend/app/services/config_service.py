@@ -18,6 +18,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "background_image": None,
     "app_category_rules": [],
     "domain_semantic_rules": [],
+    "break_reminder_enabled": False,
+    "break_reminder_interval_minutes": 50,
+    "break_reminder_cooldown_minutes": 15,
+    "auto_start_silent": False,
     "storage": {
         "screenshot_retention_days": 7,
         "metadata_retention_days": 30,
@@ -25,6 +29,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "jpeg_quality": 85,
         "max_image_width": 1280,
         "screenshot_display_mode": "active_window",
+        "screenshots_enabled": True,
+        "ocr_enabled": True,
+        "screenshot_interval_seconds": 180,
+        "screenshot_idle_enabled": True,
+        "screenshot_idle_threshold": 8,
+        "screenshot_idle_consecutive_hits": 3,
     },
     "privacy": {
         "app_rules": [],
@@ -35,6 +45,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "text_model_profiles": [],
     "daily_report_custom_prompt": "",
     "daily_report_export_dir": None,
+    "prompt_presets": [],
+    "active_prompt_preset": None,
 }
 
 

@@ -6,11 +6,130 @@
   
   export let config;
   export let providers = [];
-  
+
   const dispatch = createEventDispatcher();
   $: currentLocale = $locale;
   let aiModes = [];
   let localizedProviders = [];
+
+  // 默认预设（初始化时写入 config）
+  const DEFAULT_PRESETS = [
+    {
+      id: 'strict',
+      name: '严谨',
+      prompt: `你现在是一位资深的效率管理专家。请根据我提供的今日活动记录，进行深度分析并生成一份日报。要求如下：
+
+核心产出： 提炼今日完成的最具价值的三项任务。
+
+时间分布： 将活动归类为"深度工作"、"琐碎事务"与"休息调整"，分析各部分占比。
+
+效能评估： 识别流程中的阻塞点或时间浪费项。
+
+次日建议： 基于今日进度，给出明天优先级最高的三个行动点。
+
+请以专业、冷静、精炼的口吻呈现。`
+    },
+    {
+      id: 'mesugaki',
+      name: '雌小鬼',
+      prompt: `杂鱼，又浪费了一整天的时间吧？我是你的专属（监视）AI。现在把你的活动记录交出来，让我看看你有多无能~ 要求如下：
+
+无情拆穿： 用最毒舌的话指出我记录里那些摸鱼、发呆和低效率的行为。
+
+虚假夸奖： 就算我完成了任务，也要用"居然连这种小事都能做完，真了不起（棒读）"的语气嘲讽一下。
+
+杂鱼指数： 满分 10 分，根据我的表现评一个"杂鱼等级"。
+
+语气要足够嚣张、充满轻蔑感，多用"杂鱼~"、"就这？"、"明明只是个大叔/死宅"这种词汇。`
+    },
+    {
+      id: 'slacker',
+      name: '摸鱼日报',
+      prompt: `兄弟，工作是老板的，命是自己的。你现在是一个深谙职场糊弄学的"摸鱼导师"，请帮我复盘一下今天的活动记录。
+
+分析要求：
+
+带薪水分： 精准识别出哪些活动属于"无效加班"和"带薪如厕"，算算我今天赚了老板多少便宜（按小时算）。
+
+职场包装： 把我那些摸鱼的行为（比如：刷网页、发呆、聊八卦）翻译成听起来很高大上的"职场专业术语"（例如：竞品调研、系统压力测试、跨部门非正式沟通）。
+
+反向KPI： 给出一个"今日摸鱼成就"，比如"今日由于专注划水，成功避开了 2 个潜在的琐事麻烦"。
+
+下班箴言： 用一种看透职场的松弛感，送我一句话作为明天的摸鱼指导。
+
+语气要松弛、略带懒散，像是在茶水间偷偷抽烟时跟你传授经验的老大哥。`
+    },
+  ];
+
+  // 预设管理
+  let editingPresetId = null;
+  let editingPresetName = '';
+  let editingPresetPrompt = '';
+  let showAddPreset = false;
+  let newPresetName = '';
+  let newPresetPrompt = '';
+
+  $: promptPresets = config.prompt_presets || [];
+  $: activePresetId = config.active_prompt_preset || null;
+
+  function ensurePresets() {
+    if (!config.prompt_presets || config.prompt_presets.length === 0) {
+      config.prompt_presets = JSON.parse(JSON.stringify(DEFAULT_PRESETS));
+      dispatch('change', config);
+    }
+  }
+
+  function applyPreset(preset) {
+    config.daily_report_custom_prompt = preset.prompt;
+    config.active_prompt_preset = preset.id;
+    dispatch('change', config);
+  }
+
+  function startEditPreset(preset) {
+    editingPresetId = preset.id;
+    editingPresetName = preset.name;
+    editingPresetPrompt = preset.prompt;
+  }
+
+  function saveEditPreset() {
+    const idx = config.prompt_presets.findIndex(p => p.id === editingPresetId);
+    if (idx >= 0) {
+      config.prompt_presets[idx].name = editingPresetName.trim();
+      config.prompt_presets[idx].prompt = editingPresetPrompt.trim();
+      if (config.active_prompt_preset === editingPresetId) {
+        config.daily_report_custom_prompt = editingPresetPrompt.trim();
+      }
+      dispatch('change', config);
+    }
+    editingPresetId = null;
+  }
+
+  function cancelEditPreset() {
+    editingPresetId = null;
+  }
+
+  function deletePreset(preset) {
+    config.prompt_presets = config.prompt_presets.filter(p => p.id !== preset.id);
+    if (config.active_prompt_preset === preset.id) {
+      config.active_prompt_preset = null;
+    }
+    dispatch('change', config);
+  }
+
+  function addPreset() {
+    if (!newPresetName.trim() || !newPresetPrompt.trim()) return;
+    const id = 'custom_' + Date.now();
+    config.prompt_presets = [...config.prompt_presets, { id, name: newPresetName.trim(), prompt: newPresetPrompt.trim() }];
+    showAddPreset = false;
+    newPresetName = '';
+    newPresetPrompt = '';
+    dispatch('change', config);
+  }
+
+  function handlePromptChange() {
+    config.active_prompt_preset = null;
+    dispatch('change', config);
+  }
   
   // 日报生成模式：基础模板 vs AI 增强
   const aiModeConfigs = [
@@ -314,6 +433,7 @@
 
   // 挂载时只在配置变化时自动测试
   onMount(async () => {
+    ensurePresets();
     await new Promise(r => setTimeout(r, 200));
     
     const currentHash = getConfigHash();
@@ -554,6 +674,106 @@
       {:else if currentProvider?.description}
         <p class="settings-note">{currentProvider.description}</p>
       {/if}
+    </div>
+
+    <!-- 自定义提示词 -->
+    <div class="pt-3 border-t border-slate-200 dark:border-slate-700">
+      <label for="ai-custom-prompt" class="settings-label mb-1.5">{t('settingsAI.customPromptLabel')}</label>
+      <p class="settings-note mb-2">{t('settingsAI.customPromptHint')}</p>
+
+      <!-- 预设列表 -->
+      <div class="flex flex-wrap gap-2 mb-3">
+        {#each promptPresets as preset (preset.id)}
+          <div class="relative group">
+            <button
+              type="button"
+              class="px-3 py-1.5 text-xs font-medium rounded-lg transition-all
+                     {activePresetId === preset.id
+                       ? 'settings-segment-active'
+                       : 'settings-segment-base'}"
+              on:click={() => applyPreset(preset)}
+              title={preset.prompt.slice(0, 80) + '...'}
+            >
+              {preset.name}
+            </button>
+            <div class="absolute -top-1 -right-1 hidden group-hover:flex gap-0.5">
+              <button
+                type="button"
+                class="w-4 h-4 rounded-full bg-slate-200 dark:bg-slate-600 text-slate-500 dark:text-slate-300 flex items-center justify-center text-[9px] hover:bg-blue-200 dark:hover:bg-blue-700"
+                on:click|stopPropagation={() => startEditPreset(preset)}
+                title="编辑"
+              >✎</button>
+              <button
+                type="button"
+                class="w-4 h-4 rounded-full bg-slate-200 dark:bg-slate-600 text-slate-500 dark:text-slate-300 flex items-center justify-center text-[9px] hover:bg-red-200 dark:hover:bg-red-700"
+                on:click|stopPropagation={() => deletePreset(preset)}
+                title="删除"
+              >✕</button>
+            </div>
+          </div>
+        {/each}
+        <button
+          type="button"
+          class="px-3 py-1.5 text-xs font-medium rounded-lg settings-segment-base hover:border-dashed"
+          on:click={() => { showAddPreset = true; }}
+        >
+          + 添加预设
+        </button>
+      </div>
+
+      <!-- 编辑预设弹出区 -->
+      {#if editingPresetId}
+        <div class="mb-3 p-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+          <div class="flex items-center gap-2 mb-2">
+            <input
+              type="text"
+              bind:value={editingPresetName}
+              class="control-input flex-1 text-sm"
+              placeholder="预设名称"
+            />
+            <button type="button" class="px-2 py-1 text-xs font-medium rounded settings-action-secondary" on:click={saveEditPreset}>保存</button>
+            <button type="button" class="px-2 py-1 text-xs font-medium rounded settings-action-secondary" on:click={cancelEditPreset}>取消</button>
+          </div>
+          <textarea
+            bind:value={editingPresetPrompt}
+            rows="5"
+            class="control-input resize-y min-h-[100px] text-sm"
+            placeholder="提示词内容"
+          ></textarea>
+        </div>
+      {/if}
+
+      <!-- 新增预设区 -->
+      {#if showAddPreset}
+        <div class="mb-3 p-3 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20">
+          <div class="flex items-center gap-2 mb-2">
+            <input
+              type="text"
+              bind:value={newPresetName}
+              class="control-input flex-1 text-sm"
+              placeholder="新预设名称"
+            />
+            <button type="button" class="px-2 py-1 text-xs font-medium rounded settings-action-secondary" on:click={addPreset}>添加</button>
+            <button type="button" class="px-2 py-1 text-xs font-medium rounded settings-action-secondary" on:click={() => { showAddPreset = false; newPresetName = ''; newPresetPrompt = ''; }}>取消</button>
+          </div>
+          <textarea
+            bind:value={newPresetPrompt}
+            rows="5"
+            class="control-input resize-y min-h-[100px] text-sm"
+            placeholder="输入提示词内容..."
+          ></textarea>
+        </div>
+      {/if}
+
+      <!-- 当前生效的提示词 -->
+      <textarea
+        id="ai-custom-prompt"
+        bind:value={config.daily_report_custom_prompt}
+        on:change={handlePromptChange}
+        rows="6"
+        class="control-input resize-y min-h-[140px] text-sm"
+        placeholder={t('settingsAI.customPromptPlaceholder')}
+      ></textarea>
     </div>
   </div>
 {:else}

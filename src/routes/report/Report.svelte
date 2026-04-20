@@ -6,6 +6,7 @@
   import { cache } from '../../lib/stores/cache.js';
   import { formatLocalizedDate, formatLocalizedTime, locale, t } from '$lib/i18n/index.js';
   import { shouldShowPromptAppliedToast } from './reportPromptFeedback.js';
+  import { resolveReportMeta } from './reportMeta.js';
   import LocalizedDatePicker from '../../lib/components/LocalizedDatePicker.svelte';
 
   function getLocalDateString() {
@@ -43,29 +44,17 @@
     return modeNames[normalizedMode] || mode || t('report.modeNames.unknown');
   }
 
-  function resolveReportMeta(reportData, currentConfig) {
-    const fallbackHint = reportData?.content || '';
-    let aiMode = reportData?.ai_mode || currentConfig?.ai_mode || '';
-    let modelName = reportData?.model_name || null;
+  function getConfigMetaSummary(meta) {
+    return [
+      getAiModeName(meta?.configMode),
+      meta?.configMode === 'summary' ? meta?.configModelName : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
 
-    aiMode = (aiMode || '').toString().trim().toLowerCase();
-
-    if (
-      fallbackHint.includes('由基础模板生成') ||
-      fallbackHint.includes('使用基础模板生成') ||
-      fallbackHint.includes('由基礎模板生成') ||
-      fallbackHint.includes('使用基礎模板生成') ||
-      fallbackHint.toLowerCase().includes('generated from the base template')
-    ) {
-      aiMode = 'local';
-      modelName = null;
-    }
-
-    if (!reportData && currentConfig?.ai_mode === 'summary' && currentConfig?.text_model?.model) {
-      modelName = currentConfig.text_model.model;
-    }
-
-    return { aiMode, modelName };
+  function getFallbackReasonText(meta) {
+    return meta?.fallbackReason || t('report.savedReportNotAi');
   }
 
   async function loadConfig() {
@@ -286,7 +275,7 @@
   });
 </script>
 
-<div class="page-shell" data-locale={currentLocale}>
+<div class="page-shell report-editorial-shell" data-locale={currentLocale}>
   <!-- 页面标题 -->
   <div class="report-hero">
     <div class="report-hero-main">
@@ -302,16 +291,23 @@
           {selectedDate === getLocalDateString() ? t('report.todayReport') : t('report.historyReport')}
         </h2>
         <div class="report-hero-meta">
-          <span class="report-hero-date">{formatReportDate(selectedDate)}</span>
+          <div class="report-hero-date-row">
+            <span class="report-hero-date">{formatReportDate(selectedDate)}</span>
+          </div>
           {#if config || report}
-            <div class="report-hero-badges">
-              <span class="{reportMeta.aiMode === 'summary' ? 'page-inline-chip-brand' : 'page-inline-chip-muted'}">
-                {getAiModeName(reportMeta.aiMode)}
-              </span>
-              {#if reportMeta.aiMode === 'summary' && reportMeta.modelName}
-                <span class="page-inline-chip-muted">
-                  {reportMeta.modelName}
-                </span>
+            <div class="report-hero-status-row">
+              <p class="report-hero-summary-line">
+                <span class="report-hero-summary-label">{t('report.currentReportLabel')}</span>
+                <span class="report-hero-summary-divider">·</span>
+                <span class="report-hero-summary-value">{getAiModeName(reportMeta.reportMode)}</span>
+              </p>
+              {#if reportMeta.showUsageMismatchNotice}
+                <p class="report-hero-mode-note">{t('report.aiNotAppliedPrefix')}{getFallbackReasonText(reportMeta)}</p>
+              {/if}
+              {#if reportMeta.showConfigMeta}
+                <p class="report-hero-config-note">
+                  {t('report.currentConfigLabel')}：{getConfigMetaSummary(reportMeta)}
+                </p>
               {/if}
             </div>
           {/if}
@@ -378,8 +374,9 @@
     </div>
   </div>
 
+  <div class="report-editorial-stack">
   {#if config}
-    <div class="page-card">
+    <div class="page-card report-sheet report-sheet-controls">
       <h3 class="settings-card-title">{t('report.generationOptions')}</h3>
       {#if config.ai_mode === 'summary'}
         <div class="space-y-3">
@@ -449,16 +446,18 @@
         </button>
       </div>
     {/if}
-    <div class="page-card">
-      <div class="text-xs text-slate-400 mb-4 flex items-center gap-2">
-        <div class="w-1.5 h-1.5 rounded-full {isYesterdayReport ? 'bg-amber-500' : 'bg-emerald-500'}"></div>
-        {isYesterdayReport ? t('report.yesterdayPrefix') : ''}{t('report.generatedAt', { time: formatLocalizedDate(new Date(report.created_at * 1000), { year: 'numeric', month: '2-digit', day: '2-digit' }) + ' ' + formatLocalizedTime(new Date(report.created_at * 1000), { hour: '2-digit', minute: '2-digit', second: '2-digit' }) })}
-      </div>
-      <div
-        use:interceptReportLinks
-        class="markdown-body prose prose-slate dark:prose-invert max-w-none"
-      >
-        {@html renderMarkdown(report.content)}
+    <div class="page-card report-sheet report-article-card">
+      <div class="report-sheet-content">
+        <div class="report-sheet-meta text-xs text-slate-400 mb-4 flex items-center gap-2">
+          <div class="w-1.5 h-1.5 rounded-full {isYesterdayReport ? 'bg-amber-500' : 'bg-emerald-500'}"></div>
+          {isYesterdayReport ? t('report.yesterdayPrefix') : ''}{t('report.generatedAt', { time: formatLocalizedDate(new Date(report.created_at * 1000), { year: 'numeric', month: '2-digit', day: '2-digit' }) + ' ' + formatLocalizedTime(new Date(report.created_at * 1000), { hour: '2-digit', minute: '2-digit', second: '2-digit' }) })}
+        </div>
+        <div
+          use:interceptReportLinks
+          class="markdown-body report-sheet-body prose prose-slate dark:prose-invert max-w-none"
+        >
+          {@html renderMarkdown(report.content)}
+        </div>
       </div>
     </div>
     {:else}
@@ -488,6 +487,7 @@
       </button>
     </div>
   {/if}
+</div>
 </div>
 
 <!-- 表格 / 标题 / 列表等 markdown 样式已统一放到 app.css .markdown-body -->

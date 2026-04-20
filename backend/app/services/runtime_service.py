@@ -5,13 +5,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .config_service import load_config
 from .data_service import data_dir_path, get_activity, get_connection, initialize_database, table_exists
 
 RUNTIME_STATE_FILE = 'runtime_state.json'
 DEFAULT_ACTIVITY_DURATION = 20
 
+# 上一次截图哈希（用于空闲检测）
 _last_screenshot_hash: str | None = None
+# 连续截图相似命中次数
+_screenshot_idle_hits: int = 0
+# 上一次截图时间（用于间隔截图策略）
 _last_screenshot_timestamp: int = 0
+# 上一次活动上下文（用于检测应用切换）
 _last_activity_context: str | None = None
 
 _RUNTIME_STATE: dict[str, Any] = {
@@ -104,46 +110,127 @@ def _check_screen_locked() -> bool:
         return False
 
 
+def _try_capture_screenshot() -> str | None:
+    """尝试捕获截图，返回截图路径或 None"""
+    try:
+        from .screenshot_service import capture_screenshot
+        result = capture_screenshot()
+        if result:
+            return result.get('path')
+    except Exception:
+        pass
+    return None
+
+
+def _auto_classify_app(app_name: str, window_title: str | None, executable_path: str | None) -> str | None:
+    """自动分类应用，返回分类名或 None（如果前端已提供分类）"""
+    try:
+        from .app_classifier_service import classify_app
+        config = load_config()
+        rules = config.get('app_category_rules') or []
+        return classify_app(app_name, window_title, executable_path, rules)
+    except Exception:
+        return None
+
+
+def _screenshot_interval_seconds(storage_config: dict[str, Any]) -> int:
+    value = storage_config.get('screenshot_interval_seconds')
+    try:
+        return max(30, int(value or 180))
+    except (TypeError, ValueError):
+        return 180
+
+
+def _should_capture_screenshot(current_context: str, now_ts: int, storage_config: dict[str, Any]) -> bool:
+    interval_seconds = _screenshot_interval_seconds(storage_config)
+    if _last_activity_context is None:
+        return True
+    if current_context != _last_activity_context:
+        return True
+    return now_ts - _last_screenshot_timestamp >= interval_seconds
+
+
 def capture_activity_tick(payload: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    global _last_screenshot_hash, _last_screenshot_timestamp, _last_activity_context
+    global _last_screenshot_hash, _screenshot_idle_hits, _last_screenshot_timestamp, _last_activity_context
 
     payload = payload or {}
     if _RUNTIME_STATE.get('is_paused'):
         return None
-    if _check_screen_locked() or _check_idle():
+
+    # 检查屏幕锁定
+    if _check_screen_locked():
+        return None
+
+    # 检查空闲状态
+    if _check_idle():
         return None
 
     app_name = _normalize_text(payload.get('appName'), 'Activity Review')
     window_title = _normalize_text(payload.get('windowTitle'), app_name)
     browser_url = _normalize_text(payload.get('browserUrl')) or None
     executable_path = _normalize_text(payload.get('executablePath')) or None
-    category = _normalize_text(payload.get('category'), 'development')
+    category = _normalize_text(payload.get('category'), '') or None
     semantic_category = _normalize_text(payload.get('semanticCategory')) or None
+
+    # 自动分类（如果前端没提供分类）
+    if not category:
+        category = _auto_classify_app(app_name, window_title, executable_path) or 'other'
+
+    # 语义分类置信度（classify_semantic 尚未实现，保留变量供 INSERT 使用）
+    semantic_confidence: float | None = None
+
     duration = int(payload.get('duration') or DEFAULT_ACTIVITY_DURATION)
     now_ts = int(datetime.now().timestamp())
     _RUNTIME_STATE['main_window_visible'] = False
 
+    # 检测应用切换，切换时捕获截图
     current_context = f'{app_name}|{window_title}'
+
     screenshot_path = None
     ocr_text = None
+    config = load_config()
+    storage_config = config.get('storage') or {}
+    screenshots_enabled = storage_config.get('screenshots_enabled', True)
+    ocr_enabled = storage_config.get('ocr_enabled', True)
+    should_capture = screenshots_enabled and _should_capture_screenshot(current_context, now_ts, storage_config)
 
-    try:
-        from .screenshot_service import capture_screenshot, is_idle_by_screenshot
-        screenshot_result = capture_screenshot()
-        if screenshot_result:
-            screenshot_path = screenshot_result.get('path')
-            current_hash = screenshot_result.get('hash', '')
-            if is_idle_by_screenshot(current_hash, _last_screenshot_hash):
+    if should_capture:
+        try:
+            from .screenshot_service import capture_screenshot, get_screenshot_similarity
+            screenshot_result = capture_screenshot()
+            if screenshot_result:
+                screenshot_path = screenshot_result.get('path')
+                current_hash = screenshot_result.get('hash', '')
+
+                # 连续截图稳定判定（屏幕内容无变化）
+                screenshot_idle_enabled = storage_config.get('screenshot_idle_enabled', True)
+                consecutive_threshold = max(1, int(storage_config.get('screenshot_idle_consecutive_hits', 3)))
+
+                if screenshot_idle_enabled and _last_screenshot_hash:
+                    similarity = get_screenshot_similarity(current_hash, _last_screenshot_hash)
+                    if similarity.get('is_similar'):
+                        _screenshot_idle_hits += 1
+                    else:
+                        _screenshot_idle_hits = 0
+
+                    if _screenshot_idle_hits >= consecutive_threshold:
+                        _last_screenshot_hash = current_hash
+                        _last_activity_context = current_context
+                        return None
+                else:
+                    _screenshot_idle_hits = 0
+
                 _last_screenshot_hash = current_hash
-                _last_activity_context = current_context
-                return None
-            _last_screenshot_hash = current_hash
-            _last_screenshot_timestamp = now_ts
-    except Exception:
-        screenshot_path = None
+                _last_screenshot_timestamp = now_ts
+        except Exception:
+            screenshot_path = None
 
-    if screenshot_path:
-        ocr_text = _try_perform_ocr(screenshot_path)
+        if screenshot_path and ocr_enabled:
+            ocr_text = _try_perform_ocr(screenshot_path)
+
+    # 应用切换时重置截图稳定计数
+    if current_context != _last_activity_context:
+        _screenshot_idle_hits = 0
 
     _last_activity_context = current_context
 
@@ -199,7 +286,7 @@ def capture_activity_tick(payload: dict[str, Any] | None = None) -> dict[str, An
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (now_ts, app_name, window_title, screenshot_path, ocr_text, category, duration,
-             browser_url, executable_path, semantic_category, None),
+             browser_url, executable_path, semantic_category, semantic_confidence),
         )
         connection.commit()
         activity_id = int(cursor.lastrowid)
@@ -213,3 +300,11 @@ def set_dock_visibility(visible: bool) -> bool:
     _RUNTIME_STATE['dock_visible'] = bool(visible)
     _save_runtime_state()
     return bool(_RUNTIME_STATE['dock_visible'])
+
+
+def show_main_window(source_window_label: str | None = None) -> bool:
+    _RUNTIME_STATE['main_window_visible'] = True
+    if source_window_label:
+        _RUNTIME_STATE['last_source_window_label'] = source_window_label
+    _save_runtime_state()
+    return True

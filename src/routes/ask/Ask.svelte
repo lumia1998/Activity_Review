@@ -27,6 +27,61 @@
   let modelProfiles = [];
   let selectedModelId = BASIC_ASSISTANT_MODEL_ID;
 
+  const providerDisplayNames = {
+    ollama: {
+      'zh-CN': 'Ollama (本地)',
+      en: 'Ollama (Local)',
+      'zh-TW': 'Ollama（本機）',
+    },
+    openai: {
+      'zh-CN': 'OpenAI / 兼容API',
+      en: 'OpenAI / Compatible API',
+      'zh-TW': 'OpenAI / 相容 API',
+    },
+    siliconflow: {
+      'zh-CN': '硅基流动 SiliconFlow',
+      en: 'SiliconFlow',
+      'zh-TW': '矽基流動 SiliconFlow',
+    },
+    deepseek: {
+      'zh-CN': 'DeepSeek',
+      en: 'DeepSeek',
+      'zh-TW': 'DeepSeek',
+    },
+    minimax: {
+      'zh-CN': '稀宇科技 MiniMax',
+      en: 'MiniMax',
+      'zh-TW': '稀宇科技 MiniMax',
+    },
+    gemini: {
+      'zh-CN': 'Google Gemini',
+      en: 'Google Gemini',
+      'zh-TW': 'Google Gemini',
+    },
+    claude: {
+      'zh-CN': 'Anthropic Claude',
+      en: 'Anthropic Claude',
+      'zh-TW': 'Anthropic Claude',
+    },
+  };
+
+  function localizedProviderName(providerId) {
+    return providerDisplayNames[providerId]?.[currentLocale] || providerId || '';
+  }
+
+  function displayModelProfileName(profile) {
+    if (!profile) return '';
+    const localizedProvider = localizedProviderName(profile.model_config?.provider);
+    const modelName = profile.model_config?.model?.trim();
+    if (localizedProvider && modelName) {
+      return `${localizedProvider} · ${modelName}`;
+    }
+    if (modelName) {
+      return modelName;
+    }
+    return profile.name || '';
+  }
+
   onMount(async () => {
     unsubscribeAssistant = assistantStore.subscribe((state) => {
       const nextMessages = state.messages || [];
@@ -416,7 +471,7 @@
               >
                 <option value={BASIC_ASSISTANT_MODEL_ID}>{t('ask.basicTemplate')}</option>
                 {#each modelProfiles as profile}
-                  <option value={profile.id}>{profile.name || t('ask.aiEnhanced')}</option>
+                  <option value={profile.id}>{displayModelProfileName(profile) || t('ask.aiEnhanced')}</option>
                 {/each}
               </select>
 

@@ -8,6 +8,7 @@
   import Timeline from './routes/timeline/Timeline.svelte';
   import Summary from './routes/timeline/Summary.svelte';
   import Report from './routes/report/Report.svelte';
+  import Intelligence from './routes/intelligence/Intelligence.svelte';
   import Ask from './routes/ask/Ask.svelte';
   import Settings from './routes/settings/Settings.svelte';
   import About from './routes/about/About.svelte';
@@ -97,6 +98,7 @@
     '/': Overview,
     '/timeline': Timeline,
     '/timeline/summary': Summary,
+    '/timeline/intelligence': Intelligence,
     '/report': Report,
     '/ask': Ask,
     '/settings': Settings,
@@ -163,6 +165,15 @@
   }
 
   // 实时响应设置页的背景参数变更（不需要保存即可生效）
+  function handleBackgroundChanged(e) {
+    const d = e.detail;
+    if (d) {
+      if (d.image !== undefined) backgroundImage = d.image;
+      if (d.opacity !== undefined) backgroundOpacity = d.opacity;
+      if (d.blur !== undefined) backgroundBlur = d.blur;
+    }
+  }
+
   function getDesktopActivitySnapshot() {
     const desktop = window.__ACTICITY_DESKTOP__ || {};
     const activeContext = desktop.activeContext || {};
@@ -354,7 +365,7 @@
   });
 </script>
 
-<div class="flex h-screen overflow-hidden relative bg-[linear-gradient(180deg,#f8fafc_0%,#eef2ff_38%,#f8fafc_100%)] dark:bg-[linear-gradient(180deg,#020617_0%,#0f172a_44%,#020617_100%)]">
+<div class="app-shell flex h-screen overflow-hidden relative">
   <div class="pointer-events-none absolute inset-0 z-0 opacity-80">
     <div class="absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.14),transparent_62%)] dark:bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_62%)]"></div>
     <div class="absolute -right-16 top-24 h-48 w-48 rounded-full bg-indigo-200/20 blur-3xl dark:bg-indigo-500/12"></div>
@@ -383,63 +394,28 @@
     3. 按钮区域排除拖动 (-webkit-app-region: no-drag)
   -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="absolute top-0 left-0 w-full h-7 z-50 cursor-default" style="-webkit-app-region: drag;" on:mousedown={startDrag}>
-    <!-- 仅 Windows/Linux 平台显示自定义窗口控制按钮，macOS 使用原生控件 -->
-    {#if platform && platform !== 'macos'}
-    <!-- Windows 风格窗口控制按钮 (右上角) -->
-    <div class="absolute right-0 top-0 flex items-stretch h-7">
-      <!-- Minimize -->
-      <button
-        on:click={minimizeWindow}
-        class="w-11 h-full flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-700 focus:outline-none transition-colors"
-        style="-webkit-app-region: no-drag;"
-        title="最小化"
-      >
-        <svg class="w-3 h-3 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
-        </svg>
-      </button>
-
-      <!-- Maximize -->
-      <button
-        on:click={maximizeWindow}
-        class="w-11 h-full flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-700 focus:outline-none transition-colors"
-        style="-webkit-app-region: no-drag;"
-        title="最大化"
-      >
-        <svg class="w-3 h-3 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <rect x="4" y="4" width="16" height="16" rx="1" />
-        </svg>
-      </button>
-
-      <!-- Close -->
-      <button
-        on:click={closeWindow}
-        class="w-11 h-full flex items-center justify-center hover:bg-red-500 hover:text-white focus:outline-none transition-colors group"
-        style="-webkit-app-region: no-drag;"
-        title="关闭"
-      >
-        <svg class="w-3 h-3 text-slate-600 dark:text-slate-300 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-    </div>
-    {/if}
+  <div class="app-shell-windowbar absolute top-0 left-0 w-full h-7 z-50" style="-webkit-app-region: drag;" on:mousedown={startDrag}>
   </div>
 
-  <!-- 左侧边栏 -->
-  <div class="w-52 bg-white/72 dark:bg-slate-950/72 backdrop-blur-2xl border-r border-white/60 dark:border-slate-700/50 flex flex-col pt-2 z-10 shadow-[18px_0_40px_rgba(15,23,42,0.04)] dark:shadow-[18px_0_40px_rgba(2,6,23,0.35)]">
-    <Sidebar {isRecording} {isPaused} {theme} on:themeChange={handleThemeChange} />
-  </div>
+  <div class="app-shell-stage relative z-10 flex-1 grid grid-cols-[13.5rem_minmax(0,1fr)] gap-3 m-2 pt-2">
+    <!-- 左侧边栏 -->
+    <aside class="app-shell-sidebar-frame min-h-0">
+      <div class="app-shell-sidebar h-full flex flex-col overflow-hidden">
+        <Sidebar {isRecording} {isPaused} {theme} on:themeChange={handleThemeChange} />
+      </div>
+    </aside>
 
-  <!-- 右侧主内容区域 -->
-  <div class="relative flex-1 flex flex-col overflow-hidden z-10 {platform !== 'macos' ? 'pt-7' : ''}">
-    <main class="flex-1 overflow-auto">
-      {#key currentLocale}
-        <Router {routes} />
-      {/key}
-    </main>
-    <Toast />
-    <ConfirmDialog />
+    <!-- 右侧主内容区域 -->
+    <section class="app-shell-main-frame min-h-0">
+      <div class="app-shell-main relative h-full flex flex-col overflow-hidden">
+        <main class="app-shell-main-scroll flex-1 overflow-auto">
+          {#key currentLocale}
+            <Router {routes} />
+          {/key}
+        </main>
+        <Toast />
+        <ConfirmDialog />
+      </div>
+    </section>
   </div>
 </div>

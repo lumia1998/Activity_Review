@@ -373,6 +373,34 @@ export async function invoke(command, payload = {}) {
       return request('/api/runtime/should-check-updates');
     case 'save_update_settings':
       return request('/api/runtime/update-last-check-time', { method: 'POST' });
+    // ---- Intelligence API ----
+    case 'get_work_sessions':
+      return request('/api/intelligence/work-sessions', {
+        method: 'POST',
+        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
+      });
+    case 'recognize_work_intents':
+      return request('/api/intelligence/recognize-intents', {
+        method: 'POST',
+        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
+      });
+    case 'generate_weekly_review':
+      return request('/api/intelligence/weekly-review', {
+        method: 'POST',
+        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
+      });
+    case 'extract_todo_items':
+      return request('/api/intelligence/extract-todos', {
+        method: 'POST',
+        body: JSON.stringify({ dateFrom: payload.dateFrom, dateTo: payload.dateTo }),
+      });
+    case 'get_app_category_overview':
+      return request('/api/intelligence/app-category-overview');
+    case 'reclassify_app_history':
+      return request('/api/intelligence/reclassify-history', {
+        method: 'POST',
+        body: JSON.stringify({ appName: payload.appName, category: payload.category }),
+      });
     default:
       throw new Error(`invoke not implemented: ${command}`);
   }

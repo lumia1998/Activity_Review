@@ -7,6 +7,7 @@ from ..services.runtime_service import (
     pause_recording,
     resume_recording,
     set_dock_visibility,
+    show_main_window,
 )
 from ..services.update_service import (
     check_github_update,
@@ -38,6 +39,10 @@ class DockVisibilityPayload(BaseModel):
     visible: bool = True
 
 
+class ShowMainWindowPayload(BaseModel):
+    sourceWindowLabel: str | None = None
+
+
 class GithubUpdatePayload(BaseModel):
     currentVersion: str | None = None
     expectedVersion: str | None = None
@@ -66,6 +71,11 @@ async def activity_tick(payload: ActivityTickPayload) -> dict | None:
 @router.post('/set-dock-visibility')
 async def set_dock(payload: DockVisibilityPayload) -> bool:
     return set_dock_visibility(payload.visible)
+
+
+@router.post('/show-main-window')
+async def show_window(payload: ShowMainWindowPayload) -> bool:
+    return show_main_window(payload.sourceWindowLabel)
 
 
 @router.post('/check-github-update')

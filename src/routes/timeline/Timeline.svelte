@@ -12,6 +12,10 @@
     t,
     translateCategoryLabel,
   } from '$lib/i18n/index.js';
+  import {
+    getPreferredTimelineAppName,
+    shouldPreferTimelineFallbackIcon,
+  } from '$lib/utils/appDisplay.js';
   import { resolveAppIconSrc } from '../../lib/utils/appVisuals.js';
   import { formatBrowserUrlForDisplay } from '../../lib/utils/browserUrl.js';
   import { prepareTimelineActivities, upsertTimelineActivity } from './timelineData.js';
@@ -107,10 +111,24 @@
   }
 
   function getTimelineIconSrc(activity) {
+    const preferredAppName = getPreferredTimelineAppName(activity);
+    const base64 = appIcons[getIconCacheKey({
+      appName: activity.app_name,
+      executablePath: activity.executable_path,
+    })];
+
+    if (shouldPreferTimelineFallbackIcon(activity)) {
+      return resolveAppIconSrc(preferredAppName, null);
+    }
+
     return resolveAppIconSrc(
-      activity.app_name,
-      appIcons[getIconCacheKey({ appName: activity.app_name, executablePath: activity.executable_path })]
+      preferredAppName,
+      base64
     );
+  }
+
+  function getTimelineAppName(activity) {
+    return getPreferredTimelineAppName(activity);
   }
 
   function normalizeAppMatchKey(appName) {
@@ -564,7 +582,7 @@
             <!-- 应用信息 -->
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2">
-                <span class="font-medium text-slate-800 dark:text-white">{activity.app_name}</span>
+                <span class="font-medium text-slate-800 dark:text-white">{getTimelineAppName(activity)}</span>
                 <span class="text-[10px] text-slate-400 dark:text-slate-500">{info.name}</span>
               </div>
               <p class="text-sm text-slate-500 dark:text-slate-400 truncate mt-0.5" title={activity.window_title}>
@@ -648,7 +666,7 @@
               {/if}
             </div>
             <div>
-              <h3 class="text-lg font-semibold text-slate-800 dark:text-white">{selectedActivity.app_name}</h3>
+              <h3 class="text-lg font-semibold text-slate-800 dark:text-white">{getTimelineAppName(selectedActivity)}</h3>
               <p class="text-sm text-slate-500 dark:text-slate-400">{info.name}</p>
             </div>
           </div>

@@ -1,3 +1,3 @@
-from . import assistant, config, files, reports, runtime, stats, timeline
+from . import assistant, config, files, intelligence, reports, runtime, stats, system_api, timeline
 
-__all__ = ["assistant", "config", "files", "reports", "runtime", "stats", "timeline"]
+__all__ = ["assistant", "config", "files", "intelligence", "reports", "runtime", "stats", "system_api", "timeline"]

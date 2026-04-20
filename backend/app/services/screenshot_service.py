@@ -195,3 +195,21 @@ def is_idle_by_screenshot(current_hash: str, previous_hash: str | None, threshol
     if not previous_hash:
         return False
     return hash_distance(current_hash, previous_hash) <= threshold
+
+
+def get_screenshot_similarity(current_hash: str, previous_hash: str | None) -> dict[str, Any]:
+    """返回截图哈希相似度信息，供运行时做连续稳定判定。"""
+    if not previous_hash:
+        return {
+            'is_similar': False,
+            'distance': None,
+            'threshold': None,
+        }
+
+    distance = hash_distance(current_hash, previous_hash)
+    threshold = 8
+    return {
+        'is_similar': distance <= threshold,
+        'distance': distance,
+        'threshold': threshold,
+    }
