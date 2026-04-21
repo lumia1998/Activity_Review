@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-import multiprocessing
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -56,38 +56,80 @@ API_BASE = f'{API_ROOT}/api'
 RECORDER_INTERVAL = 20  # seconds between activity ticks
 _WINDOW_APIS: dict[str, 'DesktopApi'] = {}
 
-# ── Embedded backend (multiprocessing) ────────────────────────────────────
+# ── Embedded backend (subprocess) ────────────────────────────────────────────
 
-_backend_process: 'multiprocessing.Process | None' = None
+_backend_process: 'subprocess.Popen | None' = None
 
 
-def _run_backend_server() -> None:
-    """Entry point for the backend child process."""
+def _build_backend_cmd() -> list[str]:
+    """Return the command to start the backend server."""
+    if _is_frozen():
+        # In frozen mode, re-invoke the EXE in backend-only mode via a dedicated
+        # backend_server entry point bundled alongside the EXE, or use the same
+        # EXE with an env flag.  We use a standalone uvicorn invocation instead.
+        internal = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+        # Use the bundled python via the EXE's own interpreter path trick:
+        # PyInstaller exposes sys.executable as the EXE.  We cannot call it
+        # directly for a sub-module, so we run uvicorn via the bundled Python.
+        exe_dir = Path(sys.executable).parent
+        # The bundled pythonXY.dll is in _internal; we need the python binary.
+        # PyInstaller does not ship a standalone python.exe, so we run the
+        # backend logic in a thread instead (see _start_backend_thread below).
+        return []  # signals: use thread mode
+    # Development mode: use current interpreter + uvicorn
+    return [
+        sys.executable, '-m', 'uvicorn',
+        'backend.app.main:app',
+        '--host', '127.0.0.1',
+        '--port', '8000',
+        '--log-level', 'info',
+    ]
+
+
+def _run_backend_thread() -> None:
+    """Run uvicorn in a background thread (used in frozen mode)."""
     import asyncio
-    import platform
-    if platform.system() == 'Windows':
+    import platform as _platform
+    if _platform.system() == 'Windows':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     import uvicorn
-    uvicorn.run('backend.app.main:app', host='127.0.0.1', port=8000, log_level='info')
+    from backend.app.main import app as _app
+    uvicorn.run(_app, host='127.0.0.1', port=8000, log_level='info')
 
 
-def _start_backend() -> multiprocessing.Process:
-    """Launch the FastAPI backend in a separate process."""
-    proc = multiprocessing.Process(target=_run_backend_server, daemon=True, name='uvicorn-backend')
-    proc.start()
-    global _backend_process
-    _backend_process = proc
-    return proc
+_backend_thread: 'threading.Thread | None' = None
+
+
+def _start_backend() -> None:
+    """Launch the FastAPI backend — subprocess in dev, thread in frozen mode."""
+    global _backend_process, _backend_thread
+    cmd = _build_backend_cmd()
+    if cmd:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
+        )
+        _backend_process = proc
+    else:
+        t = threading.Thread(target=_run_backend_thread, daemon=True, name='uvicorn-backend')
+        t.start()
+        _backend_thread = t
 
 
 def _stop_backend() -> None:
-    """Terminate the backend process."""
+    """Terminate the backend process (subprocess mode only; thread is daemon)."""
     global _backend_process
-    if _backend_process is not None and _backend_process.is_alive():
-        _backend_process.terminate()
-        _backend_process.join(timeout=5)
-        if _backend_process.is_alive():
-            _backend_process.kill()
+    if _backend_process is not None:
+        try:
+            _backend_process.terminate()
+            _backend_process.wait(timeout=5)
+        except Exception:
+            try:
+                _backend_process.kill()
+            except Exception:
+                pass
     _backend_process = None
 
 
@@ -244,13 +286,13 @@ class DesktopApi:
     def __init__(self, app_version: str, window_state: WindowState) -> None:
         self.app_version = app_version
         self.window_state = window_state
-        self.window: webview.Window | None = None
+        self._window: webview.Window | None = None
         self._stop_event = threading.Event()
         self._recorder_thread: threading.Thread | None = None
         self._single_instance: SingleInstanceManager | None = None
 
     def attach_window(self, window: webview.Window) -> None:
-        self.window = window
+        self._window = window
         _WINDOW_APIS[self.currentWindowLabel] = self
 
     @property
@@ -258,12 +300,12 @@ class DesktopApi:
         return self.window_state.label
 
     def _require_window(self) -> webview.Window:
-        if self.window is None:
+        if self._window is None:
             raise RuntimeError('desktop window is not ready')
-        return self.window
+        return self._window
 
     def _dispatch_event(self, event_name: str, payload: Any = None) -> None:
-        window = self.window
+        window = self._window
         if window is None:
             return
         detail = json.dumps(payload, ensure_ascii=False)
@@ -529,7 +571,13 @@ def _bootstrap(window: webview.Window, desktop_api: DesktopApi) -> None:
                 desktop_api.showWindow()
             time.sleep(1)
 
-    threading.Thread(target=sync_runtime_preferences, daemon=True).start()
+    def _start_sync() -> None:
+        # Wait for page to finish loading before starting sync loop
+        # to avoid WinForms Invoke contention during WebView2 initialization
+        window.events.loaded.wait(timeout=30)
+        threading.Thread(target=sync_runtime_preferences, daemon=True).start()
+
+    threading.Thread(target=_start_sync, daemon=True).start()
 
 
 def main() -> None:
@@ -566,10 +614,18 @@ def main() -> None:
     )
     desktop_api.attach_window(window)
 
-    # Disable Chromium accessibility tree to prevent .NET AccessibilityObject recursion
-    os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--disable-features=msSmartScreenProtection --force-renderer-accessibility=disabled'
+    # Disable SmartScreen only; --force-renderer-accessibility=disabled causes hangs on WebView2 147+
+    os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--disable-features=msSmartScreenProtection'
 
-    webview.start(lambda: _bootstrap(window, desktop_api))
+    # Use a persistent cache dir so WebView2 doesn't re-initialize on every launch
+    webview_cache = data_dir_path() / 'webview-cache'
+    webview_cache.mkdir(parents=True, exist_ok=True)
+
+    webview.start(
+        lambda: _bootstrap(window, desktop_api),
+        storage_path=str(webview_cache),
+        private_mode=False,
+    )
 
     # ── Cleanup ─────────────────────────────────────────────────────────
     _stop_backend()

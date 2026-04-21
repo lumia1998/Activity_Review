@@ -4,12 +4,8 @@
   import { locale, t } from '$lib/i18n/index.js';
   import { runUpdateFlow } from '$lib/utils/updater.js';
 
-  const wechatSponsorshipQr = new URL('../../../docs/sponsorship/vx.png', import.meta.url).href;
-  const alipaySponsorshipQr = new URL('../../../docs/sponsorship/zfb.png', import.meta.url).href;
-
   let appVersion = '';
   let isCheckingUpdate = false;
-  let isSponsorshipOpen = false;
   let updateStatus = '';
   let updateStatusTimer = null;
   $: currentLocale = $locale;
@@ -35,15 +31,6 @@
     }
   }
 
-  function openSponsorshipModal() {
-    isSponsorshipOpen = true;
-  }
-
-  function closeSponsorshipModal() {
-    isSponsorshipOpen = false;
-  }
-
-  // 检查更新
   async function checkForUpdates() {
     if (isCheckingUpdate) return;
 
@@ -71,15 +58,7 @@
   onDestroy(() => {
     clearTimeout(updateStatusTimer);
   });
-
-  function handleWindowKeydown(event) {
-    if (event.key === 'Escape' && isSponsorshipOpen) {
-      closeSponsorshipModal();
-    }
-  }
 </script>
-
-<svelte:window on:keydown={handleWindowKeydown} />
 
 <div class="page-shell about-editorial-shell" data-locale={currentLocale}>
   <div class="mx-auto w-full max-w-4xl about-minimal-shell">
@@ -105,16 +84,6 @@
           <button on:click={openDataDir} class="page-action-secondary min-h-10 px-4 py-2">
             <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
             <span class="leading-none">{t('about.openDataDir')}</span>
-          </button>
-          <button
-            type="button"
-            on:click={openSponsorshipModal}
-            class="about-support-link"
-          >
-            <svg class="w-4 h-4 shrink-0 text-rose-500 dark:text-rose-400" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M11.996 21.357c-.34 0-.673-.092-.966-.267C8.304 19.466 2.25 15.48 2.25 9.806c0-3.034 2.395-5.556 5.47-5.556 1.708 0 3.31.78 4.276 2.074.966-1.293 2.567-2.074 4.275-2.074 3.074 0 5.48 2.522 5.48 5.556 0 5.674-6.054 9.66-8.78 11.284a1.88 1.88 0 0 1-.975.267Z" />
-            </svg>
-            <span class="leading-none">{t('about.sponsorship')}</span>
           </button>
         </div>
 
@@ -174,87 +143,3 @@
     {/if}
   </div>
 </div>
-
-{#if isSponsorshipOpen}
-  <div
-    class="fixed inset-0 z-[135] flex items-center justify-center bg-slate-950/52 px-4 py-6 backdrop-blur-md animate-fadeIn"
-  >
-    <button
-      type="button"
-      class="absolute inset-0 cursor-default"
-      on:click={closeSponsorshipModal}
-      aria-label={t('about.closeSupportDialog')}
-    ></button>
-
-    <div
-      class="relative z-10 w-full max-w-3xl rounded-[32px] border border-slate-200/80 bg-white p-6 text-left shadow-2xl shadow-slate-950/20 dark:border-slate-700/70 dark:bg-slate-900 sm:p-7"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="sponsorship-dialog-title"
-    >
-      <div class="flex items-start justify-between gap-4">
-        <div class="min-w-0">
-          <div class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold tracking-[0.14em] text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
-            {t('about.supportBadge')}
-          </div>
-          <h3 id="sponsorship-dialog-title" class="mt-3 text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
-            {t('about.supportTitle')}
-          </h3>
-          <p class="mt-3 max-w-2xl text-sm leading-7 text-slate-600 dark:text-slate-300">
-            {t('about.supportCopy')}
-          </p>
-          <p class="text-sm leading-7 text-slate-500 dark:text-slate-400">
-            {t('about.supportCopy2')}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          on:click={closeSponsorshipModal}
-          class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-          aria-label={t('about.closeSupportDialog')}
-        >
-          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="m6 6 12 12M18 6 6 18" />
-          </svg>
-        </button>
-      </div>
-
-      <div class="mt-6 grid gap-4 md:grid-cols-2">
-        <div class="rounded-[28px] border border-slate-200/80 bg-slate-50/80 p-4 dark:border-slate-700/80 dark:bg-slate-800/50">
-          <div class="flex items-center gap-2">
-            <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7.5 7.5h9v9h-9z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4.5 12h3m9 0h3M12 4.5v3m0 9v3" />
-              </svg>
-            </div>
-            <div>
-              <h4 class="text-base font-semibold text-slate-900 dark:text-white">{t('about.wechat')}</h4>
-            </div>
-          </div>
-          <div class="mt-4 rounded-[24px] bg-white p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:bg-slate-950">
-            <img src={wechatSponsorshipQr} alt={t('about.wechatQrAlt')} class="mx-auto aspect-square w-full max-w-[220px] rounded-2xl object-contain" />
-          </div>
-        </div>
-
-        <div class="rounded-[28px] border border-slate-200/80 bg-slate-50/80 p-4 dark:border-slate-700/80 dark:bg-slate-800/50">
-          <div class="flex items-center gap-2">
-            <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
-              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4.5 8.25h15M6.75 4.5h10.5A2.25 2.25 0 0 1 19.5 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 17.25V6.75A2.25 2.25 0 0 1 6.75 4.5Z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8.25 13.5h7.5" />
-              </svg>
-            </div>
-            <div>
-              <h4 class="text-base font-semibold text-slate-900 dark:text-white">{t('about.alipay')}</h4>
-            </div>
-          </div>
-          <div class="mt-4 rounded-[24px] bg-white p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:bg-slate-950">
-            <img src={alipaySponsorshipQr} alt={t('about.alipayQrAlt')} class="mx-auto aspect-square w-full max-w-[220px] rounded-2xl object-contain" />
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-{/if}

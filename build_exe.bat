@@ -7,30 +7,33 @@ echo   Activity Review - Build EXE
 echo ============================================================
 echo.
 
-:: ── 1. Check prerequisites ─────────────────────────────────────
+:: ── 0. Select Python 3.11 explicitly ────────────────────────────────────────
+set PYTHON_CMD=py -3.11
+%PYTHON_CMD% --version >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [WARN] py -3.11 not found, falling back to python
+    set PYTHON_CMD=python
+)
+echo [INFO] Using: %PYTHON_CMD%
+
+:: ── 1. Check prerequisites ─────────────────────────────────────────────────
 where node >nul 2>nul
 if %errorlevel% neq 0 (
     echo [ERROR] Node.js not found. Please install Node.js first.
     goto :fail
 )
 
-where python >nul 2>nul
-if %errorlevel% neq 0 (
-    echo [ERROR] Python not found. Please install Python first.
-    goto :fail
-)
-
-python -c "import PyInstaller" >nul 2>nul
+%PYTHON_CMD% -c "import PyInstaller" >nul 2>nul
 if %errorlevel% neq 0 (
     echo [WARN] PyInstaller not installed. Installing now...
-    pip install pyinstaller
+    %PYTHON_CMD% -m pip install pyinstaller
     if %errorlevel% neq 0 (
         echo [ERROR] Failed to install PyInstaller.
         goto :fail
     )
 )
 
-:: ── 2. Build frontend ──────────────────────────────────────────
+:: ── 2. Build frontend ──────────────────────────────────────────────────────
 echo.
 echo [1/4] Building frontend (npm run build) ...
 call npm run build
@@ -40,36 +43,31 @@ if %errorlevel% neq 0 (
 )
 echo [OK] Frontend built to dist/
 
-:: ── 3. Generate icon (optional) ────────────────────────────────
+:: ── 3. Generate icon (optional) ────────────────────────────────────────────
 echo.
 echo [2/4] Generating icons ...
-if exist "public\generated-icons\icon.ico" (
+if exist "public\icon.ico" (
     echo [OK] icon.ico already exists, skipping.
 ) else (
-    where ffmpeg >nul 2>nul
+    %PYTHON_CMD% -c "from PIL import Image; img=Image.open('public/icon.png').convert('RGBA'); s=[16,32,48,64,128,256]; imgs=[img.resize((x,x)) for x in s]; imgs[0].save('public/icon.ico',format='ICO',sizes=[(x,x) for x in s],append_images=imgs[1:])" >nul 2>nul
     if !errorlevel! equ 0 (
-        call npm run icons:build
-        if !errorlevel! neq 0 (
-            echo [WARN] Icon generation failed. Building without custom icon.
-        ) else (
-            echo [OK] Icons generated.
-        )
+        echo [OK] icon.ico generated.
     ) else (
-        echo [WARN] ffmpeg not found. Skipping icon generation. Building without custom icon.
+        echo [WARN] Icon generation failed. Building without custom icon.
     )
 )
 
-:: ── 4. Run PyInstaller ─────────────────────────────────────────
+:: ── 4. Run PyInstaller ─────────────────────────────────────────────────────
 echo.
 echo [3/4] Running PyInstaller ...
-pyinstaller --clean --noconfirm --distpath build_output --workpath build_temp activity_review.spec
+%PYTHON_CMD% -m PyInstaller --clean --noconfirm --distpath build_output --workpath build_temp activity_review.spec
 if %errorlevel% neq 0 (
     echo [ERROR] PyInstaller build failed.
     goto :fail
 )
 echo [OK] PyInstaller build complete.
 
-:: ── 5. Done ────────────────────────────────────────────────────
+:: ── 5. Done ────────────────────────────────────────────────────────────────
 echo.
 echo [4/4] Verifying output ...
 if exist "build_output\ActivityReview\ActivityReview.exe" (

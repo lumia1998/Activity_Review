@@ -1,11 +1,9 @@
 import sys
 import os
-import multiprocessing
 import traceback
 import logging
 
 sys.setrecursionlimit(10000)
-multiprocessing.freeze_support()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,17 +16,18 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-try:
-    logger.info('Launcher starting, frozen=%s', getattr(sys, 'frozen', False))
-    logger.info('sys.executable=%s', sys.executable)
-    logger.info('sys._MEIPASS=%s', getattr(sys, '_MEIPASS', 'N/A'))
+if __name__ == '__main__':
+    try:
+        logger.info('Launcher starting, frozen=%s', getattr(sys, 'frozen', False))
+        logger.info('sys.executable=%s', sys.executable)
+        logger.info('sys._MEIPASS=%s', getattr(sys, '_MEIPASS', 'N/A'))
 
-    from desktop.main import main
-    main()
-except Exception as e:
-    logger.critical('Fatal error: %s', e)
-    logger.critical(traceback.format_exc())
-    if getattr(sys, 'frozen', False):
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(0, f"启动失败:\n{e}\n\n详见 activity_review_debug.log", "Activity Review Error", 0x10)
-    sys.exit(1)
+        from desktop.main import main
+        main()
+    except Exception as e:
+        logger.critical('Fatal error: %s', e)
+        logger.critical(traceback.format_exc())
+        if getattr(sys, 'frozen', False):
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, f"启动失败:\n{e}\n\n详见 activity_review_debug.log", "Activity Review Error", 0x10)
+        sys.exit(1)

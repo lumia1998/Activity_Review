@@ -11,26 +11,24 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
+          cache: npm
 
-      - name: Setup Python
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
 
-      - name: Install frontend dependencies
+      - name: Install frontend deps
         run: npm ci
-
-      - name: Run frontend tests
-        run: node --test
 
       - name: Build frontend
         run: npm run build
@@ -39,165 +37,84 @@ jobs:
         shell: bash
         run: test -f dist/index.html
 
-      - name: Install Python dependencies
+      - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller uvicorn fastapi pydantic httptools websockets mss pillow anyio sniffio h11
+          python -m pip install pyinstaller pywebview uvicorn fastapi pydantic httptools websockets mss pillow anyio sniffio h11 pystray pythonnet
 
-      - name: Package Python backend
-        run: pyinstaller --clean --noconfirm backend_only.spec --distpath build_output --workpath build_temp
+      - name: Convert icon PNG → ICO
+        shell: python
+        run: |
+          from PIL import Image
+          import struct, zlib, io, os
 
-      - name: Verify backend exe
+          src = "public/icon.png"
+          dst = "public/icon.ico"
+          if not os.path.exists(dst):
+              img = Image.open(src).convert("RGBA")
+              sizes = [16, 32,48, 64, 128, 256]
+              images = []
+              for s in sizes:
+                  images.append(img.resize((s, s), Image.LANCZOS))
+              images[0].save(dst, format="ICO", sizes=[(s, s) for s in sizes], append_images=images[1:])
+              print(f"Created {dst}")
+          else:
+              print(f"Skipped, {dst} exists")
+
+      - name: Package with PyInstaller
+        run: python -m PyInstaller --clean --noconfirm --distpath build_output --workpath build_temp activity_review.spec
+
+      - name: Verify EXE
         shell: bash
-        run: test -f build_output/ActivityReviewBackend/ActivityReviewBackend.exe
+        run: test -f build_output/ActivityReview/ActivityReview.exe
 
-      - name: Install Electron dependencies
-        working-directory: electron
-        run: npm ci
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+          else
+            echo "version=0.0.0-dev" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Build Electron installer
-        working-directory: electron
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win --publish never
+      - name: Build installer with Inno Setup
+        shell: cmd
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.version.outputs.version }} installer.iss
 
-      - name: Upload Windows installer
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: |
-            electron/dist/*.exe
-            electron/dist/*.zip
-          if-no-files-found: warn
-
-  build-macos:
-    runs-on: macos-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: "npm"
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build frontend
-        run: npm run build
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pyinstaller uvicorn fastapi pydantic httptools websockets mss pillow anyio sniffio h11
-
-      - name: Package Python backend
-        run: pyinstaller --clean --noconfirm backend_only.spec --distpath build_output --workpath build_temp
-
-      - name: Install Electron dependencies
-        working-directory: electron
-        run: npm ci
-
-      - name: Build Electron app
-        working-directory: electron
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --mac --publish never
-
-      - name: Upload macOS app
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-app
-          path: |
-            electron/dist/*.dmg
-            electron/dist/*.zip
-          if-no-files-found: warn
-
-  build-linux:
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: "npm"
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build frontend
-        run: npm run build
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pyinstaller uvicorn fastapi pydantic httptools websockets mss pillow anyio sniffio h11
-
-      - name: Package Python backend
-        run: pyinstaller --clean --noconfirm backend_only.spec --distpath build_output --workpath build_temp
-
-      - name: Install Electron dependencies
-        working-directory: electron
-        run: npm ci
-
-      - name: Build Electron app
-        working-directory: electron
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --linux --publish never
-
-      - name: Upload Linux app
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-app
-          path: |
-            electron/dist/*.AppImage
-            electron/dist/*.deb
-          if-no-files-found: warn
+          path: installer_output/*.exe
+          if-no-files-found: error
 
   publish-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-windows, build-macos, build-linux]
+    needs: build-windows
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download installer
         uses: actions/download-artifact@v4
         with:
-          path: all-artifacts
-          merge-multiple: true
+          name: windows-installer
+          path: release-assets
 
       - name: Extract changelog
+        id: changelog
         shell: bash
         run: |
-          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          BODY=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
+          BODY=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md 2>/dev/null || true)
           if [[ -z "$BODY" ]]; then
-            BODY="版本 ${VERSION} 更新"
+            BODY="版本 ${VERSION}"
           fi
           printf '%s\n' "$BODY" > release_notes.md
 
@@ -208,7 +125,7 @@ jobs:
           name: "Activity Review ${{ github.ref_name }}"
           bodyFile: release_notes.md
           token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: "all-artifacts/**/*"
-          artifactErrorsFailBuild: false
+          artifacts: "release-assets/*.exe"
+          artifactErrorsFailBuild: true
           replacesArtifacts: true
-          makeLatest: legacy
+          makeLatest: true

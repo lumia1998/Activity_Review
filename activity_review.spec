@@ -10,7 +10,7 @@ block_cipher = None
 PROJECT_ROOT = os.path.abspath('.')
 
 # ── Icon ────────────────────────────────────────────────────────────────────
-_ico_path = os.path.join(PROJECT_ROOT, 'public', 'generated-icons', 'icon.ico')
+_ico_path = os.path.join(PROJECT_ROOT, 'public', 'icon.ico')
 if not os.path.exists(_ico_path):
     _ico_path = None  # build without icon if .ico hasn't been generated
 
@@ -115,6 +115,22 @@ hiddenimports = [
 
     # --- pywebview ---
     'webview',
+    'webview.window',
+    'webview.event',
+    'webview.menu',
+    'webview.screen',
+    'webview.util',
+    'webview.http',
+    'webview.dom',
+    'webview.errors',
+    'webview.platforms',
+    'webview.platforms.winforms',
+    'webview.platforms.edgechromium',
+
+    # --- pythonnet / clr (required by pywebview winforms) ---
+    'clr',
+    'clr_loader',
+    'pythonnet',
 
     # --- system / runtime deps ---
     'PIL',
